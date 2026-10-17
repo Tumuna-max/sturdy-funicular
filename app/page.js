@@ -2,7 +2,7 @@
 import { useState } from 'react';
 
 export default function Home() {
-  const [credits, setCredits] = useState(5);
+  const [credits, setCredits] = useState(50);
   const [loading, setLoading] = useState(false);
 
   const handleBuyCredits = async (amountUsd, creditAmount) => {
