@@ -12,8 +12,8 @@ export async function POST(request) {
       return NextResponse.json({ error: 'NOWPayments API key is missing.' }, { status: 500 });
     }
 
-    // Step 1: Create Invoice
-    const invoiceRes = await fetch('https://api.nowpayments.io/v1/invoice', {
+    // Directly create a payment instead of an invoice
+    const apiRes = await fetch('https://api.nowpayments.io/v1/payment', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -25,34 +25,20 @@ export async function POST(request) {
         pay_currency: 'usdttrc20',
         order_id: `order_${Date.now()}`,
         order_description: `${credits} Credits Top-up`,
+        ipn_callback_url: 'https://sturdy-funicular-eta.vercel.app/api/ipn',
         success_url: 'https://sturdy-funicular-eta.vercel.app/?success=true',
         cancel_url: 'https://sturdy-funicular-eta.vercel.app/?canceled=true',
       }),
     });
 
-    const invoiceData = await invoiceRes.json();
+    const data = await apiRes.json();
 
-    if (!invoiceRes.ok || !invoiceData.id) {
-      return NextResponse.json({ error: invoiceData.message || 'Invoice creation failed' }, { status: 500 });
+    if (!apiRes.ok) {
+      return NextResponse.json({ error: data.message || 'Payment creation failed' }, { status: 500 });
     }
 
-    // Step 2: Create Payment directly for USDT TRC-20
-    const paymentRes = await fetch('https://api.nowpayments.io/v1/invoice-payment', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-      },
-      body: JSON.stringify({
-        iid: invoiceData.id,
-        pay_currency: 'usdttrc20'
-      }),
-    });
-
-    const paymentData = await paymentRes.json();
-
-    // Return the invoice URL or payment link
-    const redirectUrl = invoiceData.invoice_url;
+    // NOWPayments payment endpoint returns invoice_url or pay_url
+    const redirectUrl = data.invoice_url || data.pay_url;
 
     return NextResponse.json({ invoice_url: redirectUrl });
   } catch (err) {
