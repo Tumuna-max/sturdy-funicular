@@ -1,14 +1,14 @@
+import './globals.css';
+
 export const metadata = {
   title: 'AI Companion Dashboard',
-  description: 'Manage your credits and chat',
+  description: 'Chat, interact, and manage your credit balance seamlessly.',
 };
 
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body style={{ margin: 0, padding: 0, backgroundColor: '#0f172a' }}>
-        {children}
-      </body>
+      <body className="bg-slate-950 text-white antialiased">{children}</body>
     </html>
   );
 }
