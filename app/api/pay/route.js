@@ -2,34 +2,40 @@ import { NextResponse } from 'next/server';
 
 export async function POST(request) {
   try {
-    const { userId, amountUsd, credits } = await request.json();
-    const orderId = `ORDER_${Date.now()}_${userId.slice(0, 4)}`;
+    const body = await request.json().catch(() => ({}));
+    const amount = body.amount || 5;
+    const credits = body.credits || 50;
+    
+    const apiKey = process.env.NOWPAYMENTS_API_KEY;
 
-    const response = await fetch('https://api.nowpayments.io/v1/invoice', {
+    if (!apiKey) {
+      return NextResponse.json({ error: 'NOWPayments API key is missing.' }, { status: 500 });
+    }
+
+    const apiRes = await fetch('https://api.nowpayments.io/v1/invoice', {
       method: 'POST',
       headers: {
-        'x-api-key': process.env.NOWPAYMENTS_API_KEY,
         'Content-Type': 'application/json',
+        'x-api-key': apiKey,
       },
       body: JSON.stringify({
-        price_amount: amountUsd,
+        price_amount: amount,
         price_currency: 'usd',
         pay_currency: 'usdttrc20',
-        order_id: orderId,
-        order_description: `${credits} Credits Purchase`,
-        ipn_callback_url: `${process.env.NEXT_PUBLIC_APP_URL}/api/ipn`,
-        success_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?status=success`,
-        cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?status=cancel`,
+        order_id: `order_${Date.now()}`,
+        order_description: `${credits} Credits Top-up`,
+        success_url: 'https://sturdy-funicular-eta.vercel.app/?success=true',
+        cancel_url: 'https://sturdy-funicular-eta.vercel.app/?canceled=true',
       }),
     });
 
-    const data = await response.json();
+    const data = await apiRes.json();
 
-    if (data.invoice_url) {
-      return NextResponse.json({ invoiceUrl: data.invoice_url, orderId });
-    } else {
-      return NextResponse.json({ error: 'Failed to generate payment invoice' }, { status: 400 });
+    if (!apiRes.ok) {
+      return NextResponse.json({ error: data.message || 'Invoice creation failed' }, { status: 500 });
     }
+
+    return NextResponse.json({ invoice_url: data.invoice_url });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
