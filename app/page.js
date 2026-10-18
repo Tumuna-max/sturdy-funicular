@@ -1,115 +1,110 @@
 'use client';
 
 import { useState } from 'react';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+);
 
 export default function Home() {
+  const [inputMessage, setInputMessage] = useState('');
+  const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  const handlePayment = async (amount, credits) => {
+  const handleSendMessage = async (e) => {
+    e.preventDefault();
+    if (!inputMessage.trim()) return;
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      alert('Please log in to chat.');
+      return;
+    }
+
+    const userText = inputMessage;
+    setInputMessage('');
+    setMessages((prev) => [...prev, { sender: 'user', text: userText }]);
     setLoading(true);
+
     try {
-      const res = await fetch('/api/pay', {
+      const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount, credits }),
+        body: JSON.stringify({ userId: user.id, message: userText }),
       });
 
       const data = await res.json();
 
-      if (data.invoice_url) {
-        window.location.href = data.invoice_url;
-      } else {
-        alert(data.error || 'Failed to create payment invoice. Please try again.');
+      if (res.status === 402) {
+        alert(data.message || 'You are out of credits! Redirecting to top-up page...');
+        window.location.href = '/topup';
+        return;
+      }
+
+      if (!res.ok) {
+        alert(data.error || 'Failed to send message.');
+        return;
+      }
+
+      if (data.reply) {
+        setMessages((prev) => [...prev, { sender: 'ai', text: data.reply }]);
       }
     } catch (err) {
-      alert('An unexpected error occurred. Please try again.');
+      alert('Something went wrong. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <main style={{
-      minHeight: '100vh',
-      backgroundColor: '#030712',
-      color: '#ffffff',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontFamily: 'sans-serif',
-      padding: '24px'
-    }}>
-      <div style={{ maxWidth: '400px', width: '100%', textAlign: 'center' }}>
-        <h1 style={{ fontSize: '32px', fontWeight: 'bold', marginBottom: '8px' }}>
-          AI Companion Dashboard
+    <main style={{ minHeight: '85vh', backgroundColor: '#030712', color: '#ffffff', padding: '24px', fontFamily: 'sans-serif' }}>
+      <div style={{ maxWidth: '600px', margin: '0 auto', display: 'flex', flexDirection: 'column', height: '75vh' }}>
+        <h1 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '16px', textAlign: 'center' }}>
+          AI Companion Chat
         </h1>
-        <p style={{ color: '#94a3b8', marginBottom: '32px' }}>
-          Chat, interact, and manage your credit balance seamlessly.
-        </p>
 
-        <div style={{
-          backgroundColor: '#0f172a',
-          border: '1px solid #1e293b',
-          borderRadius: '16px',
-          padding: '24px',
-          marginBottom: '24px',
-          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-        }}>
-          <h2 style={{ fontSize: '12px', textTransform: 'uppercase', color: '#94a3b8', letterSpacing: '1px' }}>
-            Current Balance
-          </h2>
-          <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'center', alignItems: 'baseline', gap: '8px' }}>
-            <span style={{ fontSize: '48px', fontWeight: 'bold' }}>50</span>
-            <span style={{ fontSize: '18px', color: '#94a3b8' }}>Credits</span>
-          </div>
-        </div>
-
-        <div style={{
-          backgroundColor: '#0f172a',
-          border: '1px solid #1e293b',
-          borderRadius: '16px',
-          padding: '24px',
-          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-        }}>
-          <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '16px' }}>
-            Top Up Credits (USDT TRC-20)
-          </h3>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-            <button
-              onClick={() => handlePayment(5, 50)}
-              disabled={loading}
+        <div style={{ flex: 1, backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', padding: '16px', overflowY: 'auto', marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {messages.length === 0 && (
+            <p style={{ color: '#64748b', textAlign: 'center', marginTop: 'auto', marginBottom: 'auto' }}>
+              Send a message to start chatting!
+            </p>
+          )}
+          {messages.map((msg, idx) => (
+            <div
+              key={idx}
               style={{
-                backgroundColor: '#4f46e5',
+                alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start',
+                backgroundColor: msg.sender === 'user' ? '#4f46e5' : '#1e293b',
                 color: '#ffffff',
-                fontWeight: '600',
-                padding: '12px',
-                borderRadius: '10px',
-                border: 'none',
-                cursor: 'pointer',
-                width: '100%'
+                padding: '10px 14px',
+                borderRadius: '8px',
+                maxWidth: '80%',
               }}
             >
-              {loading ? 'Processing...' : '50 Credits ($5)'}
-            </button>
-            <button
-              onClick={() => handlePayment(10, 120)}
-              disabled={loading}
-              style={{
-                backgroundColor: '#1e293b',
-                color: '#ffffff',
-                fontWeight: '600',
-                padding: '12px',
-                borderRadius: '10px',
-                border: '1px solid #334155',
-                cursor: 'pointer',
-                width: '100%'
-              }}
-            >
-              {loading ? 'Processing...' : '120 Credits ($10)'}
-            </button>
-          </div>
+              {msg.text}
+            </div>
+          ))}
+          {loading && <p style={{ color: '#94a3b8', fontSize: '14px', italic: 'true' }}>AI is typing...</p>}
         </div>
+
+        <form onSubmit={handleSendMessage} style={{ display: 'flex', gap: '8px' }}>
+          <input
+            type="text"
+            value={inputMessage}
+            onChange={(e) => setInputMessage(e.target.value)}
+            placeholder="Type your message..."
+            style={{ flex: 1, padding: '12px', backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px', color: '#ffffff', outline: 'none' }}
+          />
+          <button
+            type="submit"
+            disabled={loading}
+            style={{ padding: '12px 20px', backgroundColor: '#4f46e5', color: '#ffffff', fontWeight: '600', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+          >
+            Send
+          </button>
+        </form>
       </div>
     </main>
   );
