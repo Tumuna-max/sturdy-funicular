@@ -3,8 +3,8 @@ import { NextResponse } from 'next/server';
 export async function POST(request) {
   try {
     const body = await request.json().catch(() => ({}));
-    const amount = body.amount || 5;
-    const credits = body.credits || 50;
+    const amount = body.amount || 10; // Set minimum default to 10
+    const credits = body.credits || 100;
 
     const apiKey = process.env.NOWPAYMENTS_API_KEY;
 
@@ -25,7 +25,6 @@ export async function POST(request) {
         order_id: `order_${Date.now()}`,
         order_description: `${credits} Credits Top-up`,
         ipn_callback_url: 'https://sturdy-funicular-eta.vercel.app/api/ipn',
-        is_fixed_rate: true,
       }),
     });
 
@@ -35,12 +34,9 @@ export async function POST(request) {
       return NextResponse.json({ error: payData.message || 'Payment generation failed' }, { status: 500 });
     }
 
-    return NextResponse.json({
-      pay_address: payData.pay_address,
-      pay_amount: payData.pay_amount,
-      payment_id: payData.payment_id,
-      invoice_url: payData.invoice_url || `https://nowpayments.io/payment/?iid=${payData.invoice_id}`
-    });
+    const checkoutUrl = `https://nowpayments.io/payment/?payment_id=${payData.payment_id}`;
+
+    return NextResponse.json({ invoice_url: checkoutUrl });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
