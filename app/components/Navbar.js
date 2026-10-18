@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
 import Link from 'next/link';
+import { useState, useEffect } from 'react';
+import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -11,43 +11,41 @@ const supabase = createClient(
 
 export default function Navbar() {
   const [credits, setCredits] = useState(null);
+  const [user, setUser] = useState(null);
 
   useEffect(() => {
-    async function fetchUserCredits() {
+    const fetchUserAndCredits = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('credits')
-        .eq('id', user.id)
-        .single();
-
-      if (data) {
-        setCredits(data.credits);
+      if (user) {
+        setUser(user);
+        const { data } = await supabase
+          .from('users')
+          .select('credits')
+          .eq('id', user.id)
+          .single();
+        if (data) setCredits(data.credits);
       }
-    }
+    };
 
-    fetchUserCredits();
+    fetchUserAndCredits();
   }, []);
 
   return (
-    <nav className="flex items-center justify-between px-6 py-4 bg-gray-900 border-b border-gray-800 text-white">
-      <Link href="/" className="font-bold text-lg tracking-wide">
+    <nav className="w-full border-b border-gray-800 bg-gray-950 px-6 py-4 flex items-center justify-between">
+      <Link href="/" className="text-xl font-bold text-white hover:text-indigo-400 transition">
         AI Companion
       </Link>
 
-      <div className="flex items-center space-x-4">
+      <div className="flex items-center gap-4">
         {credits !== null && (
-          <div className="flex items-center space-x-2 bg-gray-800 px-3 py-1.5 rounded-full border border-gray-700">
-            <span className="text-yellow-400 font-semibold">⚡ {credits}</span>
-            <span className="text-xs text-gray-400">Credits</span>
+          <div className="bg-gray-900 border border-gray-800 px-3 py-1.5 rounded-lg text-sm text-gray-300">
+            <span className="font-semibold text-indigo-400">{credits}</span> Credits
           </div>
         )}
 
         <Link
           href="/topup"
-          className="bg-indigo-600 hover:bg-indigo-500 px-4 py-1.5 rounded-full text-sm font-medium transition"
+          className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold px-4 py-2 rounded-lg transition"
         >
           Top Up
         </Link>
