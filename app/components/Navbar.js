@@ -14,63 +14,42 @@ export default function Navbar() {
   const [user, setUser] = useState(null);
 
   useEffect(() => {
-    // Check initial user session
     const getUserSession = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         setUser(user);
-        fetchCredits(user.id);
+        const { data } = await supabase
+          .from('users')
+          .select('credits')
+          .eq('id', user.id)
+          .single();
+        if (data) setCredits(data.credits);
       }
     };
 
     getUserSession();
 
-    // Listen for auth state changes
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
         setUser(session.user);
-        fetchCredits(session.user.id);
       } else {
         setUser(null);
         setCredits(null);
       }
     });
 
-    return () => {
-      authListener.subscription.unsubscribe();
-    };
+    return () => authListener.subscription.unsubscribe();
   }, []);
-
-  const fetchCredits = async (userId) => {
-    const { data } = await supabase
-      .from('users')
-      .select('credits')
-      .eq('id', userId)
-      .single();
-    if (data) setCredits(data.credits);
-  };
-
-  const handleLogin = async () => {
-    // Replace with your preferred sign-in logic (e.g., Google or Magic Link)
-    const email = prompt('Enter your email to log in / sign up:');
-    if (!email) return;
-
-    const { error } = await supabase.auth.signInWithOtp({ email });
-    if (error) {
-      alert(error.message);
-    } else {
-      alert('Check your email for the login link!');
-    }
-  };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
+    window.location.reload();
   };
 
   return (
     <nav className="w-full border-b border-gray-800 bg-gray-950 px-6 py-4 flex items-center justify-between">
-      <Link href="/" className="text-xl font-bold text-white hover:text-indigo-400 transition">
-        AI Companion
+      <Link href="/" className="text-xl font-extrabold text-white hover:text-pink-500 transition">
+        Live Chat
       </Link>
 
       <div className="flex items-center gap-4">
@@ -78,14 +57,14 @@ export default function Navbar() {
           <>
             {credits !== null && (
               <div className="bg-gray-900 border border-gray-800 px-3 py-1.5 rounded-lg text-sm text-gray-300">
-                <span className="font-semibold text-indigo-400">{credits}</span> Credits
+                <span className="font-semibold text-pink-500">{credits}</span> Credits
               </div>
             )}
             <Link
               href="/topup"
-              className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold px-4 py-2 rounded-lg transition"
+              className="bg-gradient-to-r from-pink-600 to-indigo-600 hover:opacity-90 text-white text-sm font-semibold px-4 py-2 rounded-xl transition"
             >
-              Top Up
+              Add Credits
             </Link>
             <button
               onClick={handleLogout}
@@ -95,12 +74,12 @@ export default function Navbar() {
             </button>
           </>
         ) : (
-          <button
-            onClick={handleLogin}
-            className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold px-4 py-2 rounded-lg transition"
+          <Link
+            href="/login"
+            className="bg-gradient-to-r from-pink-600 to-indigo-600 hover:opacity-90 text-white text-sm font-semibold px-4 py-2 rounded-xl transition"
           >
             Log In / Sign Up
-          </button>
+          </Link>
         )}
       </div>
     </nav>
