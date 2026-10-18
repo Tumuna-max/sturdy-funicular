@@ -12,7 +12,8 @@ export async function POST(request) {
       return NextResponse.json({ error: 'NOWPayments API key is missing.' }, { status: 500 });
     }
 
-    const apiRes = await fetch('https://api.nowpayments.io/v1/invoice', {
+    // Step 1: Create Invoice
+    const invoiceRes = await fetch('https://api.nowpayments.io/v1/invoice', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -29,13 +30,31 @@ export async function POST(request) {
       }),
     });
 
-    const data = await apiRes.json();
+    const invoiceData = await invoiceRes.json();
 
-    if (!apiRes.ok) {
-      return NextResponse.json({ error: data.message || 'Invoice creation failed' }, { status: 500 });
+    if (!invoiceRes.ok || !invoiceData.id) {
+      return NextResponse.json({ error: invoiceData.message || 'Invoice creation failed' }, { status: 500 });
     }
 
-    return NextResponse.json({ invoice_url: data.invoice_url });
+    // Step 2: Create Payment directly for USDT TRC-20
+    const paymentRes = await fetch('https://api.nowpayments.io/v1/invoice-payment', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        iid: invoiceData.id,
+        pay_currency: 'usdttrc20'
+      }),
+    });
+
+    const paymentData = await paymentRes.json();
+
+    // Return the invoice URL or payment link
+    const redirectUrl = invoiceData.invoice_url;
+
+    return NextResponse.json({ invoice_url: redirectUrl });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
