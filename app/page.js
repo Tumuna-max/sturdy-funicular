@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -12,6 +12,15 @@ export default function Home() {
   const [inputMessage, setInputMessage] = useState('');
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
+  const chatEndRef = useRef(null);
+
+  const scrollToBottom = () => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, loading]);
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
@@ -59,48 +68,46 @@ export default function Home() {
   };
 
   return (
-    <main style={{ minHeight: '85vh', backgroundColor: '#030712', color: '#ffffff', padding: '24px', fontFamily: 'sans-serif' }}>
-      <div style={{ maxWidth: '600px', margin: '0 auto', display: 'flex', flexDirection: 'column', height: '75vh' }}>
-        <h1 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '16px', textAlign: 'center' }}>
-          AI Companion Chat
-        </h1>
+    <main className="min-h-[85vh] bg-gray-950 text-white p-6 font-sans">
+      <div className="max-w-2xl mx-auto flex flex-col h-[75vh]">
+        <h1 className="text-2xl font-bold mb-4 text-center">AI Companion Chat</h1>
 
-        <div style={{ flex: 1, backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', padding: '16px', overflowY: 'auto', marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div className="flex-1 bg-gray-900 border border-gray-800 rounded-xl p-4 overflow-y-auto mb-4 flex flex-col gap-3">
           {messages.length === 0 && (
-            <p style={{ color: '#64748b', textAlign: 'center', marginTop: 'auto', marginBottom: 'auto' }}>
+            <p className="text-gray-500 text-center my-auto">
               Send a message to start chatting!
             </p>
           )}
           {messages.map((msg, idx) => (
             <div
               key={idx}
-              style={{
-                alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start',
-                backgroundColor: msg.sender === 'user' ? '#4f46e5' : '#1e293b',
-                color: '#ffffff',
-                padding: '10px 14px',
-                borderRadius: '8px',
-                maxWidth: '80%',
-              }}
+              className={`p-3 rounded-xl max-w-[80%] text-sm ${
+                msg.sender === 'user'
+                  ? 'ml-auto bg-indigo-600 text-white'
+                  : 'mr-auto bg-gray-800 text-gray-200'
+              }`}
             >
               {msg.text}
             </div>
           ))}
-          {loading && <p style={{ color: '#94a3b8', fontSize: '14px', italic: 'true' }}>AI is typing...</p>}
+          {loading && (
+            <p className="text-gray-400 text-xs italic">AI is typing...</p>
+          )}
+          <div ref={chatEndRef} />
         </div>
 
-        <form onSubmit={handleSendMessage} style={{ display: 'flex', gap: '8px' }}>
+        <form onSubmit={handleSendMessage} className="flex gap-2">
           <input
             type="text"
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
             placeholder="Type your message..."
-            style={{ flex: 1, padding: '12px', backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px', color: '#ffffff', outline: 'none' }}
+            className="flex-1 px-4 py-3 bg-gray-900 border border-gray-800 rounded-xl text-white outline-none focus:border-indigo-500 text-sm"
           />
           <button
             type="submit"
             disabled={loading}
-            style={{ padding: '12px 20px', backgroundColor: '#4f46e5', color: '#ffffff', fontWeight: '600', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+            className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 rounded-xl font-semibold text-sm transition disabled:opacity-50"
           >
             Send
           </button>
