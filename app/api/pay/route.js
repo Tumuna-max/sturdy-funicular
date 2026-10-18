@@ -5,15 +5,14 @@ export async function POST(request) {
     const body = await request.json().catch(() => ({}));
     const amount = body.amount || 5;
     const credits = body.credits || 50;
-    
+
     const apiKey = process.env.NOWPAYMENTS_API_KEY;
 
     if (!apiKey) {
       return NextResponse.json({ error: 'NOWPayments API key is missing.' }, { status: 500 });
     }
 
-    // Directly create a payment instead of an invoice
-    const apiRes = await fetch('https://api.nowpayments.io/v1/payment', {
+    const payRes = await fetch('https://api.nowpayments.io/v1/payment', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -26,21 +25,22 @@ export async function POST(request) {
         order_id: `order_${Date.now()}`,
         order_description: `${credits} Credits Top-up`,
         ipn_callback_url: 'https://sturdy-funicular-eta.vercel.app/api/ipn',
-        success_url: 'https://sturdy-funicular-eta.vercel.app/?success=true',
-        cancel_url: 'https://sturdy-funicular-eta.vercel.app/?canceled=true',
+        is_fixed_rate: true,
       }),
     });
 
-    const data = await apiRes.json();
+    const payData = await payRes.json();
 
-    if (!apiRes.ok) {
-      return NextResponse.json({ error: data.message || 'Payment creation failed' }, { status: 500 });
+    if (!payRes.ok) {
+      return NextResponse.json({ error: payData.message || 'Payment generation failed' }, { status: 500 });
     }
 
-    // NOWPayments payment endpoint returns invoice_url or pay_url
-    const redirectUrl = data.invoice_url || data.pay_url;
-
-    return NextResponse.json({ invoice_url: redirectUrl });
+    return NextResponse.json({
+      pay_address: payData.pay_address,
+      pay_amount: payData.pay_amount,
+      payment_id: payData.payment_id,
+      invoice_url: payData.invoice_url || `https://nowpayments.io/payment/?iid=${payData.invoice_id}`
+    });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
