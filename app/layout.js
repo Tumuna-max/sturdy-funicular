@@ -40,7 +40,7 @@ export default function RootLayout({ children }) {
             <div className="space-y-6">
               {/* Logo */}
               <Link href="/" className="flex items-center gap-2 text-blue-600 font-extrabold text-xl px-2">
-                <span className="text-2xl">🌸</span> SakuraDate
+                <span className="text-2xl">🌹</span> Mwabi Date
               </Link>
 
               {/* Profile Card / Auth Status */}
