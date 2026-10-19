@@ -15,81 +15,90 @@ export default function HomePage() {
 
   useEffect(() => {
     async function fetchProfiles() {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .order('id', { ascending: true });
-
-      if (!error && data) {
-        setProfiles(data);
-      }
+      const { data } = await supabase.from('profiles').select('*').order('id', { ascending: true });
+      if (data) setProfiles(data);
       setLoading(false);
     }
     fetchProfiles();
   }, []);
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center">
-        <p className="animate-pulse text-gray-400">Loading host profiles...</p>
-      </div>
-    );
+    return <div className="p-8 text-center text-slate-500">Loading discovery feed...</div>;
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white p-6 sm:p-10">
-      <div className="max-w-7xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-pink-500 to-purple-500 bg-clip-text text-transparent">
-            Discover Hosts
-          </h1>
-          <p className="text-gray-400 text-sm mt-1">
-            Connect and chat live with available host profiles right now.
-          </p>
+    <div className="p-6 space-y-6">
+      {/* Top Search & Filter Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+        <div className="flex items-center gap-3 flex-1 min-w-[240px]">
+          <input
+            type="text"
+            placeholder="Search ID or name"
+            className="w-full border border-slate-300 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-blue-500"
+          />
         </div>
+        <div className="flex items-center gap-4">
+          <label className="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer">
+            ONLINE
+            <input type="checkbox" defaultChecked className="toggle-checkbox rounded" />
+          </label>
+          <button className="border border-slate-300 rounded-xl px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 flex items-center gap-2">
+            ⚙️ Search filter
+          </button>
+        </div>
+      </div>
 
-        {/* Profile Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          {profiles.map((profile) => (
-            <div
-              key={profile.id}
-              className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden hover:border-pink-500/50 transition duration-300 shadow-lg flex flex-col justify-between"
-            >
-              <div className="relative aspect-[3/4] w-full bg-gray-800 overflow-hidden">
-                <img
-                  src={
-                    profile.avatar_url ||
-                    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600&q=80'
-                  }
-                  alt={profile.name}
-                  className="w-full h-full object-cover object-center hover:scale-105 transition duration-500"
-                />
-                <span className="absolute top-3 right-3 bg-emerald-500/90 text-white text-xs font-semibold px-2.5 py-1 rounded-full backdrop-blur-md shadow-md">
-                  Online
-                </span>
-              </div>
+      {/* Profile Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {profiles.map((profile) => (
+          <div key={profile.id} className="bg-white rounded-2xl overflow-hidden border border-slate-200 shadow-sm flex flex-col">
+            {/* Image Container with Badges */}
+            <div className="relative aspect-[3/4] bg-slate-200">
+              <img
+                src={profile.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600&q=80'}
+                alt={profile.name}
+                className="w-full h-full object-cover"
+              />
+              
+              {/* Online Badge */}
+              <span className="absolute top-3 left-3 bg-slate-900/60 text-white text-xs px-2.5 py-1 rounded-md backdrop-blur-md font-medium">
+                I'm online now
+              </span>
 
-              <div className="p-4 flex-1 flex flex-col justify-between">
-                <div>
-                  <h3 className="text-lg font-bold text-white">
-                    {profile.name}, {profile.age}
-                  </h3>
-                  <p className="text-xs text-pink-400 font-medium">{profile.location}</p>
-                  <p className="text-xs text-gray-400 line-clamp-2 mt-2">
-                    {profile.bio}
-                  </p>
-                </div>
+              {/* Photos Counter */}
+              <span className="absolute top-3 right-3 bg-slate-900/60 text-white text-xs px-2.5 py-1 rounded-md backdrop-blur-md flex items-center gap-1 font-medium">
+                🖼️ All photos
+              </span>
 
-                <Link
-                  href={`/chat/${profile.id}`}
-                  className="mt-4 w-full block text-center bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white font-semibold py-2.5 rounded-xl text-sm transition shadow-md"
-                >
-                  Start Chat
-                </Link>
+              {/* Name Overlay */}
+              <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-slate-950/80 via-slate-950/40 to-transparent p-4 pt-12">
+                <h3 className="text-xl font-bold text-white tracking-wide">
+                  {profile.name}, {profile.age}
+                </h3>
               </div>
             </div>
-          ))}
-        </div>
+
+            {/* Action Buttons */}
+            <div className="p-3 space-y-2 bg-white">
+              <div className="grid grid-cols-2 gap-2">
+                <Link
+                  href={`/chat/${profile.id}`}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 transition"
+                >
+                  💬 Chat Now
+                </Link>
+                <button className="border border-blue-600 text-blue-600 hover:bg-blue-50 font-bold py-2.5 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 transition">
+                  🤍 Like
+                </button>
+              </div>
+
+              <div className="flex items-center justify-around text-xs text-slate-500 pt-1 border-t border-slate-100">
+                <span className="cursor-pointer hover:text-slate-800">✉️ Letter</span>
+                <span className="cursor-pointer hover:text-slate-800">👤 Profile</span>
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
