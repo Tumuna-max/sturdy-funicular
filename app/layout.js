@@ -41,7 +41,7 @@ export default function RootLayout({ children }) {
       <body className="bg-slate-100 text-slate-800 antialiased min-h-screen">
         <div className="flex max-w-[1600px] mx-auto min-h-screen bg-white shadow-xl">
           
-          {/* LEFT SIDEBAR */}
+          {/* PUBLIC LEFT SIDEBAR */}
           <aside className="w-64 border-r border-slate-200 p-4 flex flex-col justify-between shrink-0 bg-white">
             <div className="space-y-6">
               {/* Logo */}
@@ -81,7 +81,7 @@ export default function RootLayout({ children }) {
                 <span>🪙</span> Add credits ({credits})
               </Link>
 
-              {/* Nav Links */}
+              {/* Client Nav Links ONLY */}
               <nav className="space-y-1 text-sm font-medium text-slate-600">
                 <Link href="/" className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-100 text-slate-900 font-semibold">
                   <span>💬</span> All chats
@@ -91,12 +91,6 @@ export default function RootLayout({ children }) {
                 </Link>
                 <Link href="/dashboard" className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-100">
                   <span>👤</span> My Profile & Details
-                </Link>
-                <Link href="/operator" className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-100 text-emerald-600 font-bold">
-                  <span>🎧</span> Worker Console
-                </Link>
-                <Link href="/admin" className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-100 text-purple-600 font-bold">
-                  <span>⚙️</span> Admin Panel
                 </Link>
               </nav>
             </div>
