@@ -12,71 +12,81 @@ const supabase = createClient(
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(false);
   const router = useRouter();
 
   const handleAuth = async (e) => {
     e.preventDefault();
-    setLoading(true);
-
-    // Try signing in first
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
-    
-    if (signInError) {
-      // If sign in fails, try signing up automatically
-      const { error: signUpError } = await supabase.auth.signUp({ email, password });
-      if (signUpError) {
-        alert(signUpError.message);
-      } else {
-        alert('Account created and logged in successfully!');
-        router.push('/');
+    if (isSignUp) {
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { credits: 20, operator_slots: 20 } }
+      });
+      if (error) alert(error.message);
+      else {
+        alert('Account created successfully! You can now log in.');
+        setIsSignUp(false);
       }
     } else {
-      alert('Logged in successfully!');
-      router.push('/');
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) alert(error.message);
+      else {
+        router.push('/');
+        router.refresh();
+      }
     }
-    setLoading(false);
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-6">
-      <div className="max-w-md w-full bg-gray-900 border border-gray-800 rounded-3xl p-8 shadow-2xl">
-        <h1 className="text-2xl font-bold mb-2 text-center">Welcome</h1>
-        <p className="text-gray-400 text-sm text-center mb-6">Log in or sign up to start chatting.</p>
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+      <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm max-w-md w-full space-y-6">
+        <div className="text-center">
+          <h1 className="text-2xl font-black text-blue-600">🌹 Frumence Date</h1>
+          <p className="text-xs text-slate-400 mt-1">{isSignUp ? 'Create a new account' : 'Log in to your account'}</p>
+        </div>
 
-        <form onSubmit={handleAuth} className="flex flex-col gap-4">
+        <form onSubmit={handleAuth} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-gray-400 mb-1">Email</label>
+            <label className="text-xs font-bold text-slate-600 block mb-1">Email Address</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-pink-500"
-              placeholder="Enter your email"
+              className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-blue-500"
+              placeholder="your@email.com"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-400 mb-1">Password</label>
+            <label className="text-xs font-bold text-slate-600 block mb-1">Password</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-pink-500"
-              placeholder="Enter your password"
+              className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-blue-500"
+              placeholder="••••••••"
             />
           </div>
 
           <button
             type="submit"
-            disabled={loading}
-            className="w-full mt-2 py-3 bg-gradient-to-r from-pink-600 to-indigo-600 hover:opacity-90 font-semibold text-sm rounded-xl transition disabled:opacity-50"
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl text-xs transition shadow-md"
           >
-            {loading ? 'Processing...' : 'Continue'}
+            {isSignUp ? 'Sign Up' : 'Log In'}
           </button>
         </form>
+
+        <div className="text-center">
+          <button
+            onClick={() => setIsSignUp(!isSignUp)}
+            className="text-xs text-blue-600 font-semibold hover:underline"
+          >
+            {isSignUp ? 'Already have an account? Log in' : "Don't have an account? Sign up"}
+          </button>
+        </div>
       </div>
     </div>
   );
