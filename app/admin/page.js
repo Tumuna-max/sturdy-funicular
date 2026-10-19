@@ -30,7 +30,6 @@ export default function AdminDashboard() {
 
   const handleAdminLogin = (e) => {
     e.preventDefault();
-    // SET YOUR MASTER ADMIN PASSWORD HERE
     if (adminPassword === 'FrumenceAdmin2026!') {
       setAuthenticated(true);
       fetchData();
@@ -40,11 +39,15 @@ export default function AdminDashboard() {
   };
 
   async function fetchData() {
-    const { data: profileData } = await supabase.from('profiles').select('*').order('id', { ascending: false });
-    if (profileData) setProfiles(profileData);
+    try {
+      const { data: profileData } = await supabase.from('profiles').select('*').order('id', { ascending: false });
+      if (profileData) setProfiles(profileData);
 
-    const { data: userData } = await supabase.from('users').select('*');
-    if (userData) setUsers(userData);
+      const { data: userData } = await supabase.from('users').select('*');
+      if (userData) setUsers(userData);
+    } catch (err) {
+      console.error(err);
+    }
   }
 
   const handleCreateProfile = async (e) => {
@@ -82,7 +85,7 @@ export default function AdminDashboard() {
     if (error) {
       alert('Error creating worker: ' + error.message);
     } else {
-      alert(`Worker account created for ${workerEmail}! You can now send them their login credentials.`);
+      alert(`Worker account created for ${workerEmail}!`);
       setWorkerEmail('');
       setWorkerPassword('');
       fetchData();
@@ -100,23 +103,23 @@ export default function AdminDashboard() {
   // PASSWORD GATE CHECK
   if (!authenticated) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6 text-white">
-        <form onSubmit={handleAdminLogin} className="bg-slate-800 p-8 rounded-2xl border border-slate-700 max-w-md w-full space-y-6 shadow-2xl">
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 text-white w-full">
+        <form onSubmit={handleAdminLogin} className="bg-slate-900 border border-slate-800 p-8 rounded-3xl max-w-md w-full space-y-6 shadow-2xl">
           <div className="text-center">
             <span className="text-4xl">🔐</span>
-            <h1 className="text-xl font-bold mt-2">Frumence Date Master Admin</h1>
-            <p className="text-xs text-slate-400 mt-1">Enter your master security key to access control console</p>
+            <h1 className="text-xl font-bold mt-3">Frumence Date Admin Gateway</h1>
+            <p className="text-xs text-slate-400 mt-1">Enter master admin password to continue</p>
           </div>
 
           <div>
-            <label className="text-xs font-bold text-slate-300 block mb-1">Admin Security Password</label>
+            <label className="text-xs font-bold text-slate-300 block mb-1">Master Password</label>
             <input
               type="password"
               value={adminPassword}
               onChange={(e) => setAdminPassword(e.target.value)}
-              placeholder="Enter Master Password"
+              placeholder="FrumenceAdmin2026!"
               required
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-blue-500 text-white"
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-blue-500 text-white"
             />
           </div>
 
@@ -136,7 +139,7 @@ export default function AdminDashboard() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900">Master Admin Control Panel</h1>
-          <p className="text-xs text-slate-500">Manage Host Profiles, Create Worker Accounts, and Revoke Access.</p>
+          <p className="text-xs text-slate-500">Manage Host Profiles and Worker Accounts.</p>
         </div>
         <div className="flex gap-2 bg-white p-1 rounded-xl border border-slate-200">
           <button
@@ -149,14 +152,13 @@ export default function AdminDashboard() {
             onClick={() => setActiveTab('workers')}
             className={`px-4 py-2 rounded-lg text-xs font-bold transition ${activeTab === 'workers' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
           >
-            Workers & Clients Control
+            Workers & Users
           </button>
         </div>
       </div>
 
       {activeTab === 'profiles' ? (
         <div className="space-y-8">
-          {/* Host Profile Form */}
           <form onSubmit={handleCreateProfile} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
             <h3 className="font-bold text-slate-900 text-sm">Add New Host Profile</h3>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -172,7 +174,6 @@ export default function AdminDashboard() {
             <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2.5 rounded-xl text-xs transition">Create Host Profile</button>
           </form>
 
-          {/* Host Table */}
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase">
@@ -199,41 +200,22 @@ export default function AdminDashboard() {
         </div>
       ) : (
         <div className="space-y-8">
-          {/* Create Worker Account Form */}
           <form onSubmit={handleCreateWorker} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
             <h3 className="font-bold text-slate-900 text-sm">Create Worker / Operator Account</h3>
-            <p className="text-xs text-slate-400">Create login details here, then send them to your staff member.</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <input
-                type="email"
-                placeholder="Worker Email (e.g. worker1@frumence.com)"
-                value={workerEmail}
-                onChange={(e) => setWorkerEmail(e.target.value)}
-                required
-                className="border border-slate-300 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-blue-500"
-              />
-              <input
-                type="password"
-                placeholder="Assign Temporary Password"
-                value={workerPassword}
-                onChange={(e) => setWorkerPassword(e.target.value)}
-                required
-                className="border border-slate-300 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-blue-500"
-              />
+              <input type="email" placeholder="Worker Email" value={workerEmail} onChange={(e) => setWorkerEmail(e.target.value)} required className="border border-slate-300 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-blue-500" />
+              <input type="password" placeholder="Assign Password" value={workerPassword} onChange={(e) => setWorkerPassword(e.target.value)} required className="border border-slate-300 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-blue-500" />
             </div>
-            <button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-6 py-2.5 rounded-xl text-xs transition">
-              Create Worker Credentials
-            </button>
+            <button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-6 py-2.5 rounded-xl text-xs transition">Create Worker Credentials</button>
           </form>
 
-          {/* Account Management Table */}
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase">
                 <tr>
-                  <th className="p-4">User / Worker ID</th>
+                  <th className="p-4">User ID</th>
                   <th className="p-4">Credits</th>
-                  <th className="p-4">Operator Slots</th>
+                  <th className="p-4">Slots</th>
                   <th className="p-4 text-right">Actions</th>
                 </tr>
               </thead>
@@ -241,12 +223,10 @@ export default function AdminDashboard() {
                 {users.map((u) => (
                   <tr key={u.id} className="hover:bg-slate-50">
                     <td className="p-4 font-mono text-slate-700">{u.id}</td>
-                    <td className="p-4 font-bold text-blue-600">{u.credits ?? 0} credits</td>
-                    <td className="p-4 font-bold text-emerald-600">{u.operator_slots ?? 20} slots</td>
+                    <td className="p-4 font-bold text-blue-600">{u.credits ?? 0}</td>
+                    <td className="p-4 font-bold text-emerald-600">{u.operator_slots ?? 20}</td>
                     <td className="p-4 text-right">
-                      <button onClick={() => handleDeleteWorker(u.id)} className="text-rose-600 hover:text-rose-800 font-bold">
-                        Revoke / Delete Access
-                      </button>
+                      <button onClick={() => handleDeleteWorker(u.id)} className="text-rose-600 hover:text-rose-800 font-bold">Delete</button>
                     </td>
                   </tr>
                 ))}
