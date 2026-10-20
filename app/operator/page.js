@@ -16,11 +16,12 @@ export default function OperatorConsole() {
 
   const [hosts, setHosts] = useState([]);
   const [selectedHost, setSelectedHost] = useState(null);
-  const [conversations, setConversations] = useState([]);
-  const [selectedConv, setSelectedConv] = useState(null);
+  const [clientChats, setClientChats] = useState([]);
+  const [selectedClient, setSelectedClient] = useState(null);
   const [messages, setMessages] = useState([]);
   const [replyText, setReplyText] = useState('');
 
+  // 1. Check Auth
   useEffect(() => {
     async function checkAuth() {
       const { data: { user } } = await supabase.auth.getUser();
@@ -29,85 +30,118 @@ export default function OperatorConsole() {
     checkAuth();
   }, []);
 
+  // 2. Fetch Hosts & Resolve Profile Images
   useEffect(() => {
     if (!workerUser) return;
+
     async function fetchHosts() {
       const { data } = await supabase.from('profiles').select('*');
       if (data && data.length > 0) {
-        setHosts(data);
-        setSelectedHost(data[0]);
+        const formatted = data.map(h => ({
+          ...h,
+          resolvedImg: h.image_url || h.avatar_url || h.image || h.photo_url || ''
+        }));
+        setHosts(formatted);
+        setSelectedHost(formatted[0]);
       }
     }
     fetchHosts();
   }, [workerUser]);
 
+  // 3. Fetch Client Chats for Selected Host Profile
   useEffect(() => {
     if (!workerUser || !selectedHost) return;
 
-    async function fetchHostConversations() {
-      const { data: convs } = await supabase
-        .from('conversations')
+    async function fetchHostChats() {
+      // Get messages directed to or sent by this host
+      const { data: msgs } = await supabase
+        .from('messages')
         .select('*')
-        .eq('profile_id', selectedHost.id);
+        .or(`receiver_id.eq.${selectedHost.id},profile_id.eq.${selectedHost.id},sender_id.eq.${selectedHost.id}`)
+        .order('created_at', { ascending: false });
 
-      if (convs && convs.length > 0) {
-        const userIds = convs.map(c => c.user_id);
-        const { data: usersData } = await supabase.from('users').select('id, full_name, email').in('id', userIds);
+      if (msgs && msgs.length > 0) {
+        // Group distinct clients
+        const clientIds = Array.from(new Set(msgs.map(m => m.sender_id === selectedHost.id ? (m.receiver_id || m.profile_id) : m.sender_id))).filter(Boolean);
 
-        const convIds = convs.map(c => c.id);
-        const { data: msgs } = await supabase
-          .from('messages')
-          .select('*')
-          .in('conversation_id', convIds)
-          .order('created_at', { ascending: false });
+        // Fetch client details
+        const { data: usersData } = await supabase.from('users').select('id, full_name, email').in('id', clientIds);
 
-        const formatted = convs.map(c => {
-          const clientUser = usersData?.find(u => u.id === c.user_id);
-          const lastMsg = msgs?.find(m => m.conversation_id === c.id);
+        const chats = clientIds.map(cId => {
+          const clientUser = usersData?.find(u => u.id === cId);
+          const lastMsg = msgs.find(m => m.sender_id === cId || m.receiver_id === cId || m.profile_id === cId);
           return {
-            ...c,
-            clientName: clientUser?.full_name || clientUser?.email || `Client ${c.user_id.substring(0, 6)}`,
-            lastMessage: lastMsg?.content || 'Started a new conversation'
+            id: cId,
+            name: clientUser?.full_name || clientUser?.email || `Client ID: ${cId.substring(0, 8)}...`,
+            lastMessage: lastMsg?.content || 'New Chat'
           };
         });
 
-        setConversations(formatted);
+        setClientChats(chats);
       } else {
-        setConversations([]);
+        setClientChats([]);
       }
     }
 
-    fetchHostConversations();
+    fetchHostChats();
+
+    // Real-time listener
+    const channel = supabase
+      .channel('operator-updates')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => {
+        fetchHostChats();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [workerUser, selectedHost]);
 
+  // 4. Fetch Message Thread
   useEffect(() => {
-    if (!selectedConv) return;
-    async function loadMessages() {
+    if (!selectedClient || !selectedHost) return;
+
+    async function loadThread() {
       const { data } = await supabase
         .from('messages')
         .select('*')
-        .eq('conversation_id', selectedConv.id)
+        .or(`and(sender_id.eq.${selectedClient.id}),and(receiver_id.eq.${selectedClient.id}),and(profile_id.eq.${selectedClient.id})`)
         .order('created_at', { ascending: true });
-      if (data) setMessages(data);
+
+      if (data) {
+        const filtered = data.filter(m => 
+          (m.sender_id === selectedHost.id && (m.receiver_id === selectedClient.id || m.profile_id === selectedClient.id)) ||
+          (m.sender_id === selectedClient.id && (m.receiver_id === selectedHost.id || m.profile_id === selectedHost.id))
+        );
+        setMessages(filtered);
+      }
     }
-    loadMessages();
-  }, [selectedConv]);
+
+    loadThread();
+  }, [selectedClient, selectedHost]);
 
   const handleSendReply = async (e) => {
     e.preventDefault();
-    if (!replyText.trim() || !selectedConv || !selectedHost) return;
+    if (!replyText.trim() || !selectedHost || !selectedClient) return;
 
     const { data: newMsg, error } = await supabase
       .from('messages')
-      .insert([{ conversation_id: selectedConv.id, sender_id: selectedHost.id, content: replyText }])
-      .select()
-      .single();
+      .insert([
+        {
+          sender_id: selectedHost.id,
+          receiver_id: selectedClient.id,
+          profile_id: selectedHost.id,
+          content: replyText
+        }
+      ])
+      .select('*');
 
-    if (!error && newMsg) {
-      setMessages((prev) => [...prev, newMsg]);
+    if (!error && newMsg && newMsg.length > 0) {
+      setMessages((prev) => [...prev, newMsg[0]]);
       setReplyText('');
     } else {
-      alert('Error sending reply: ' + error?.message);
+      alert('Error sending reply: ' + (error?.message || 'Database error'));
     }
   };
 
@@ -164,10 +198,16 @@ export default function OperatorConsole() {
           {hosts.map((host) => (
             <button
               key={host.id}
-              onClick={() => { setSelectedHost(host); setSelectedConv(null); }}
+              onClick={() => { setSelectedHost(host); setSelectedClient(null); }}
               className={`w-full flex items-center gap-3 p-3 rounded-xl ${selectedHost?.id === host.id ? 'bg-blue-600 text-white shadow' : 'bg-slate-50 hover:bg-slate-100'}`}
             >
-              <img src={host.image_url} alt={host.name} className="w-10 h-10 rounded-full object-cover shrink-0" />
+              {host.resolvedImg ? (
+                <img src={host.resolvedImg} alt={host.name} className="w-10 h-10 rounded-full object-cover shrink-0 border" />
+              ) : (
+                <div className="w-10 h-10 rounded-full bg-rose-500 text-white font-bold flex items-center justify-center text-xs shrink-0">
+                  {host.name?.substring(0, 2).toUpperCase()}
+                </div>
+              )}
               <div className="text-left overflow-hidden">
                 <p className="font-bold text-sm truncate">{host.name}</p>
                 <p className={`text-xs ${selectedHost?.id === host.id ? 'text-blue-100' : 'text-slate-500'}`}>Age {host.age}</p>
@@ -181,16 +221,16 @@ export default function OperatorConsole() {
       <div className="w-1/4 border-r bg-white p-4 overflow-y-auto">
         <h3 className="text-xs font-bold uppercase text-slate-400 mb-3">Client Chats</h3>
         <div className="space-y-2">
-          {conversations.length === 0 ? (
+          {clientChats.length === 0 ? (
             <p className="text-xs text-slate-400 italic">No active client chats for this host profile.</p>
           ) : (
-            conversations.map((c) => (
+            clientChats.map((c) => (
               <button
                 key={c.id}
-                onClick={() => setSelectedConv(c)}
-                className={`w-full text-left p-3 rounded-xl border ${selectedConv?.id === c.id ? 'border-blue-600 bg-blue-50' : 'border-slate-200 hover:bg-slate-50'}`}
+                onClick={() => setSelectedClient(c)}
+                className={`w-full text-left p-3 rounded-xl border ${selectedClient?.id === c.id ? 'border-blue-600 bg-blue-50' : 'border-slate-200 hover:bg-slate-50'}`}
               >
-                <p className="text-xs font-bold text-slate-800">{c.clientName}</p>
+                <p className="text-xs font-bold text-slate-800">{c.name}</p>
                 <p className="text-xs text-slate-500 truncate mt-1">{c.lastMessage}</p>
               </button>
             ))
@@ -198,7 +238,7 @@ export default function OperatorConsole() {
         </div>
       </div>
 
-      {/* 3. MESSAGE DESK */}
+      {/* 3. MESSAGE THREAD & REPLY DESK */}
       <div className="flex-1 flex flex-col justify-between p-6">
         {selectedHost && (
           <div className="border-b pb-3 mb-4">
@@ -208,9 +248,13 @@ export default function OperatorConsole() {
         )}
 
         <div className="flex-1 overflow-y-auto space-y-3 mb-4 pr-2">
-          {!selectedConv ? (
+          {!selectedClient ? (
             <div className="h-full flex items-center justify-center text-slate-400 text-sm italic">
               Select a client chat from the middle panel to view messages
+            </div>
+          ) : messages.length === 0 ? (
+            <div className="h-full flex items-center justify-center text-slate-400 text-sm italic">
+              No message history found with this client.
             </div>
           ) : (
             messages.map((m, idx) => (
@@ -223,7 +267,7 @@ export default function OperatorConsole() {
           )}
         </div>
 
-        {selectedConv && (
+        {selectedClient && (
           <form onSubmit={handleSendReply} className="flex gap-3">
             <input
               type="text"
