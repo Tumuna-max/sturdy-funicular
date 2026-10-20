@@ -46,32 +46,35 @@ export default function OperatorConsole() {
     fetchHosts();
   }, [workerUser]);
 
-  // 3. Fetch Client Chats & Messages for Selected Host
+  // 3. Fetch Client Chats & Messages for Selected Host (Universal Column Matcher)
   useEffect(() => {
     if (!workerUser || !selectedHost) return;
 
     async function fetchHostChats() {
-      // Fetch messages where this host is either sender or receiver
       const { data, error } = await supabase
         .from('messages')
         .select('*')
-        .or(`receiver_id.eq.${selectedHost.id},sender_id.eq.${selectedHost.id}`)
+        .or(`receiver_id.eq.${selectedHost.id},profile_id.eq.${selectedHost.id},host_id.eq.${selectedHost.id},recipient_id.eq.${selectedHost.id},sender_id.eq.${selectedHost.id}`)
         .order('created_at', { ascending: false });
 
       if (data) {
-        // Find unique clients chatting with this host profile
         const clientMap = new Map();
         
         data.forEach((msg) => {
-          const clientId = msg.sender_id === selectedHost.id ? msg.receiver_id : msg.sender_id;
-          if (!clientId) return;
+          const hostId = selectedHost.id;
+          const isSenderHost = msg.sender_id === hostId;
+          const clientId = isSenderHost 
+            ? (msg.receiver_id || msg.profile_id || msg.host_id || msg.recipient_id) 
+            : msg.sender_id;
+
+          if (!clientId || clientId === hostId) return;
 
           if (!clientMap.has(clientId)) {
             clientMap.set(clientId, {
               id: clientId,
               lastMessage: msg.content,
               time: msg.created_at,
-              isNew: msg.sender_id !== selectedHost.id && !msg.is_read
+              isNew: !isSenderHost && !msg.is_read
             });
           }
         });
@@ -87,7 +90,7 @@ export default function OperatorConsole() {
       .channel('operator-chat-room')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
         fetchHostChats();
-        if (selectedClient && payload.new.sender_id === selectedClient.id) {
+        if (selectedClient && (payload.new.sender_id === selectedClient.id || payload.new.receiver_id === selectedClient.id)) {
           setMessages((prev) => [...prev, payload.new]);
         }
       })
@@ -106,11 +109,16 @@ export default function OperatorConsole() {
       const { data } = await supabase
         .from('messages')
         .select('*')
-        .or(`and(sender_id.eq.${selectedHost.id},receiver_id.eq.${selectedClient.id}),and(sender_id.eq.${selectedClient.id},receiver_id.eq.${selectedHost.id})`)
+        .or(`and(sender_id.eq.${selectedHost.id}),and(receiver_id.eq.${selectedHost.id}),and(sender_id.eq.${selectedClient.id}),and(receiver_id.eq.${selectedClient.id})`)
         .order('created_at', { ascending: true });
 
       if (data) {
-        setMessages(data);
+        // Filter strictly to conversation between this host and client
+        const filtered = data.filter(m => 
+          (m.sender_id === selectedHost.id && (m.receiver_id === selectedClient.id || m.profile_id === selectedClient.id || m.host_id === selectedClient.id || m.recipient_id === selectedClient.id)) ||
+          (m.sender_id === selectedClient.id && (m.receiver_id === selectedHost.id || m.profile_id === selectedHost.id || m.host_id === selectedHost.id || m.recipient_id === selectedHost.id))
+        );
+        setMessages(filtered);
       }
     }
 
@@ -161,13 +169,18 @@ export default function OperatorConsole() {
 
     if (!error) {
       setReplyText('');
-      // Refresh chat history
       const { data } = await supabase
         .from('messages')
         .select('*')
-        .or(`and(sender_id.eq.${selectedHost.id},receiver_id.eq.${selectedClient.id}),and(sender_id.eq.${selectedClient.id},receiver_id.eq.${selectedHost.id})`)
         .order('created_at', { ascending: true });
-      if (data) setMessages(data);
+      
+      if (data) {
+        const filtered = data.filter(m => 
+          (m.sender_id === selectedHost.id && (m.receiver_id === selectedClient.id || m.profile_id === selectedClient.id || m.host_id === selectedClient.id || m.recipient_id === selectedClient.id)) ||
+          (m.sender_id === selectedClient.id && (m.receiver_id === selectedHost.id || m.profile_id === selectedHost.id || m.host_id === selectedHost.id || m.recipient_id === selectedHost.id))
+        );
+        setMessages(filtered);
+      }
     } else {
       alert('Error sending reply: ' + error.message);
     }
