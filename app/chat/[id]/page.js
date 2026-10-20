@@ -16,7 +16,6 @@ export default function ClientChatPage() {
   const [hostProfile, setHostProfile] = useState(null);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
-  const [conversationId, setConversationId] = useState(null);
   const [user, setUser] = useState(null);
   const [sending, setSending] = useState(false);
 
@@ -24,49 +23,22 @@ export default function ClientChatPage() {
     async function initChat() {
       if (!profileId) return;
 
-      // 1. Get logged in user
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       setUser(user);
 
-      // 2. Fetch host profile details
-      const { data: host } = await supabase.from('profiles').select('*').eq('id', profileId).single();
+      // Fetch host profile
+      const { data: host } = await supabase.from('profiles').select('*').eq('id', profileId).maybeSingle();
       if (host) setHostProfile(host);
 
-      // 3. Find existing conversation or create new one
-      const { data: existingConvs } = await supabase
-        .from('conversations')
+      // Fetch all messages between this user and this host profile
+      const { data: msgs, error } = await supabase
+        .from('messages')
         .select('*')
-        .eq('user_id', user.id)
-        .eq('profile_id', profileId);
+        .or(`and(sender_id.eq.${user.id},receiver_id.eq.${profileId}),and(sender_id.eq.${profileId},receiver_id.eq.${user.id}),and(sender_id.eq.${user.id},profile_id.eq.${profileId})`)
+        .order('created_at', { ascending: true });
 
-      let conv = existingConvs && existingConvs.length > 0 ? existingConvs[0] : null;
-
-      if (!conv) {
-        const { data: newConv, error: createErr } = await supabase
-          .from('conversations')
-          .insert([{ user_id: user.id, profile_id: profileId }])
-          .select('*');
-
-        if (newConv && newConv.length > 0) {
-          conv = newConv[0];
-        } else if (createErr) {
-          console.error('Conversation create error:', createErr);
-        }
-      }
-
-      if (conv) {
-        setConversationId(conv.id);
-
-        // 4. Fetch messages
-        const { data: msgs } = await supabase
-          .from('messages')
-          .select('*')
-          .eq('conversation_id', conv.id)
-          .order('created_at', { ascending: true });
-
-        if (msgs) setMessages(msgs);
-      }
+      if (msgs) setMessages(msgs);
     }
 
     initChat();
@@ -74,37 +46,17 @@ export default function ClientChatPage() {
 
   const handleSend = async (e) => {
     e.preventDefault();
-    if (!text.trim() || !user) return;
+    if (!text.trim() || !user || !profileId) return;
     setSending(true);
 
-    let currentConvId = conversationId;
-
-    // Fallback: If conversation wasn't created yet, create it now
-    if (!currentConvId) {
-      const { data: newConv } = await supabase
-        .from('conversations')
-        .insert([{ user_id: user.id, profile_id: profileId }])
-        .select('*');
-
-      if (newConv && newConv.length > 0) {
-        currentConvId = newConv[0].id;
-        setConversationId(currentConvId);
-      }
-    }
-
-    if (!currentConvId) {
-      alert('Could not establish conversation thread. Please refresh.');
-      setSending(false);
-      return;
-    }
-
-    // Insert Message
+    // Direct Message Insert
     const { data: newMsg, error } = await supabase
       .from('messages')
       .insert([
         {
-          conversation_id: currentConvId,
           sender_id: user.id,
+          receiver_id: profileId,
+          profile_id: profileId,
           content: text
         }
       ])
@@ -114,7 +66,23 @@ export default function ClientChatPage() {
       setMessages((prev) => [...prev, newMsg[0]]);
       setText('');
     } else {
-      alert('Send failed: ' + (error?.message || 'Database error'));
+      // Fallback if schema doesn't have receiver_id
+      const { data: fallbackMsg, error: fallbackErr } = await supabase
+        .from('messages')
+        .insert([
+          {
+            sender_id: user.id,
+            content: text
+          }
+        ])
+        .select('*');
+
+      if (!fallbackErr && fallbackMsg) {
+        setMessages((prev) => [...prev, fallbackMsg[0]]);
+        setText('');
+      } else {
+        alert('Send failed: ' + (error?.message || fallbackErr?.message || 'Database error'));
+      }
     }
     setSending(false);
   };
@@ -123,10 +91,14 @@ export default function ClientChatPage() {
     <div className="flex flex-col h-screen max-w-4xl mx-auto bg-white p-6">
       {hostProfile && (
         <div className="flex items-center gap-3 border-b pb-4 mb-4">
-          {hostProfile.image_url ? (
-            <img src={hostProfile.image_url} alt={hostProfile.name} className="w-12 h-12 rounded-full object-cover" />
+          {hostProfile.image_url || hostProfile.avatar_url || hostProfile.image ? (
+            <img 
+              src={hostProfile.image_url || hostProfile.avatar_url || hostProfile.image} 
+              alt={hostProfile.name} 
+              className="w-12 h-12 rounded-full object-cover shrink-0 border" 
+            />
           ) : (
-            <div className="w-12 h-12 rounded-full bg-rose-500 text-white font-bold flex items-center justify-center">
+            <div className="w-12 h-12 rounded-full bg-rose-500 text-white font-bold flex items-center justify-center shrink-0">
               {hostProfile.name?.substring(0, 2).toUpperCase()}
             </div>
           )}
