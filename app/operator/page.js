@@ -21,7 +21,7 @@ export default function OperatorConsole() {
   const [messages, setMessages] = useState([]);
   const [replyText, setReplyText] = useState('');
 
-  // 1. Check Auth
+  // 1. Auth Check
   useEffect(() => {
     async function checkAuth() {
       const { data: { user } } = await supabase.auth.getUser();
@@ -30,19 +30,15 @@ export default function OperatorConsole() {
     checkAuth();
   }, []);
 
-  // 2. Fetch Hosts & Resolve Profile Images
+  // 2. Fetch Host Profiles
   useEffect(() => {
     if (!workerUser) return;
 
     async function fetchHosts() {
       const { data } = await supabase.from('profiles').select('*');
       if (data && data.length > 0) {
-        const formatted = data.map(h => ({
-          ...h,
-          resolvedImg: h.image_url || h.avatar_url || h.image || h.photo_url || ''
-        }));
-        setHosts(formatted);
-        setSelectedHost(formatted[0]);
+        setHosts(data);
+        setSelectedHost(data[0]);
       }
     }
     fetchHosts();
@@ -53,7 +49,6 @@ export default function OperatorConsole() {
     if (!workerUser || !selectedHost) return;
 
     async function fetchHostChats() {
-      // Get messages directed to or sent by this host
       const { data: msgs } = await supabase
         .from('messages')
         .select('*')
@@ -61,19 +56,19 @@ export default function OperatorConsole() {
         .order('created_at', { ascending: false });
 
       if (msgs && msgs.length > 0) {
-        // Group distinct clients
-        const clientIds = Array.from(new Set(msgs.map(m => m.sender_id === selectedHost.id ? (m.receiver_id || m.profile_id) : m.sender_id))).filter(Boolean);
+        const clientIds = Array.from(
+          new Set(msgs.map((m) => (m.sender_id === selectedHost.id ? (m.receiver_id || m.profile_id) : m.sender_id)))
+        ).filter(Boolean);
 
-        // Fetch client details
         const { data: usersData } = await supabase.from('users').select('id, full_name, email').in('id', clientIds);
 
-        const chats = clientIds.map(cId => {
-          const clientUser = usersData?.find(u => u.id === cId);
-          const lastMsg = msgs.find(m => m.sender_id === cId || m.receiver_id === cId || m.profile_id === cId);
+        const chats = clientIds.map((cId) => {
+          const clientUser = usersData?.find((u) => u.id === cId);
+          const lastMsg = msgs.find((m) => m.sender_id === cId || m.receiver_id === cId || m.profile_id === cId);
           return {
             id: cId,
             name: clientUser?.full_name || clientUser?.email || `Client ID: ${cId.substring(0, 8)}...`,
-            lastMessage: lastMsg?.content || 'New Chat'
+            lastMessage: lastMsg?.content || 'New Message'
           };
         });
 
@@ -85,9 +80,9 @@ export default function OperatorConsole() {
 
     fetchHostChats();
 
-    // Real-time listener
+    // Listen to real-time message changes
     const channel = supabase
-      .channel('operator-updates')
+      .channel('operator-realtime-room')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => {
         fetchHostChats();
       })
@@ -110,9 +105,10 @@ export default function OperatorConsole() {
         .order('created_at', { ascending: true });
 
       if (data) {
-        const filtered = data.filter(m => 
-          (m.sender_id === selectedHost.id && (m.receiver_id === selectedClient.id || m.profile_id === selectedClient.id)) ||
-          (m.sender_id === selectedClient.id && (m.receiver_id === selectedHost.id || m.profile_id === selectedHost.id))
+        const filtered = data.filter(
+          (m) =>
+            (m.sender_id === selectedHost.id && (m.receiver_id === selectedClient.id || m.profile_id === selectedClient.id)) ||
+            (m.sender_id === selectedClient.id && (m.receiver_id === selectedHost.id || m.profile_id === selectedHost.id))
         );
         setMessages(filtered);
       }
@@ -198,16 +194,15 @@ export default function OperatorConsole() {
           {hosts.map((host) => (
             <button
               key={host.id}
-              onClick={() => { setSelectedHost(host); setSelectedClient(null); }}
-              className={`w-full flex items-center gap-3 p-3 rounded-xl ${selectedHost?.id === host.id ? 'bg-blue-600 text-white shadow' : 'bg-slate-50 hover:bg-slate-100'}`}
+              onClick={() => {
+                setSelectedHost(host);
+                setSelectedClient(null);
+              }}
+              className={`w-full flex items-center gap-3 p-3 rounded-xl ${
+                selectedHost?.id === host.id ? 'bg-blue-600 text-white shadow' : 'bg-slate-50 hover:bg-slate-100'
+              }`}
             >
-              {host.resolvedImg ? (
-                <img src={host.resolvedImg} alt={host.name} className="w-10 h-10 rounded-full object-cover shrink-0 border" />
-              ) : (
-                <div className="w-10 h-10 rounded-full bg-rose-500 text-white font-bold flex items-center justify-center text-xs shrink-0">
-                  {host.name?.substring(0, 2).toUpperCase()}
-                </div>
-              )}
+              <img src={host.image_url || host.avatar_url || host.image} alt={host.name} className="w-10 h-10 rounded-full object-cover shrink-0 border" />
               <div className="text-left overflow-hidden">
                 <p className="font-bold text-sm truncate">{host.name}</p>
                 <p className={`text-xs ${selectedHost?.id === host.id ? 'text-blue-100' : 'text-slate-500'}`}>Age {host.age}</p>
@@ -228,7 +223,9 @@ export default function OperatorConsole() {
               <button
                 key={c.id}
                 onClick={() => setSelectedClient(c)}
-                className={`w-full text-left p-3 rounded-xl border ${selectedClient?.id === c.id ? 'border-blue-600 bg-blue-50' : 'border-slate-200 hover:bg-slate-50'}`}
+                className={`w-full text-left p-3 rounded-xl border ${
+                  selectedClient?.id === c.id ? 'border-blue-600 bg-blue-50' : 'border-slate-200 hover:bg-slate-50'
+                }`}
               >
                 <p className="text-xs font-bold text-slate-800">{c.name}</p>
                 <p className="text-xs text-slate-500 truncate mt-1">{c.lastMessage}</p>
@@ -259,7 +256,11 @@ export default function OperatorConsole() {
           ) : (
             messages.map((m, idx) => (
               <div key={idx} className={`flex ${m.sender_id === selectedHost.id ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-md p-3 rounded-2xl text-sm ${m.sender_id === selectedHost.id ? 'bg-blue-600 text-white' : 'bg-white border text-slate-800 shadow-sm'}`}>
+                <div
+                  className={`max-w-md p-3 rounded-2xl text-sm ${
+                    m.sender_id === selectedHost.id ? 'bg-blue-600 text-white' : 'bg-white border text-slate-800 shadow-sm'
+                  }`}
+                >
                   {m.content}
                 </div>
               </div>
