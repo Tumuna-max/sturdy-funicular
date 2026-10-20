@@ -1,4 +1,4 @@
-const handleCreateWorker = async (e) => {
+'use client';
   e.preventDefault();
 
   try {
