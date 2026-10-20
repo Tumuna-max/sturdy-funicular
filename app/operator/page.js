@@ -21,7 +21,6 @@ export default function OperatorConsole() {
   const [messages, setMessages] = useState([]);
   const [replyText, setReplyText] = useState('');
 
-  // 1. Auth Check
   useEffect(() => {
     async function checkAuth() {
       const { data: { user } } = await supabase.auth.getUser();
@@ -30,10 +29,8 @@ export default function OperatorConsole() {
     checkAuth();
   }, []);
 
-  // 2. Fetch Host Profiles
   useEffect(() => {
     if (!workerUser) return;
-
     async function fetchHosts() {
       const { data } = await supabase.from('profiles').select('*');
       if (data && data.length > 0) {
@@ -44,7 +41,6 @@ export default function OperatorConsole() {
     fetchHosts();
   }, [workerUser]);
 
-  // 3. Fetch Client Chats for Selected Host Profile
   useEffect(() => {
     if (!workerUser || !selectedHost) return;
 
@@ -80,7 +76,6 @@ export default function OperatorConsole() {
 
     fetchHostChats();
 
-    // Listen to real-time message changes
     const channel = supabase
       .channel('operator-realtime-room')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => {
@@ -93,7 +88,6 @@ export default function OperatorConsole() {
     };
   }, [workerUser, selectedHost]);
 
-  // 4. Fetch Message Thread
   useEffect(() => {
     if (!selectedClient || !selectedHost) return;
 
@@ -187,7 +181,6 @@ export default function OperatorConsole() {
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-800 overflow-hidden">
-      {/* 1. HOST PROFILES */}
       <div className="w-1/4 border-r bg-white p-4 overflow-y-auto">
         <h3 className="text-xs font-bold uppercase text-slate-400 mb-3">Host Profiles</h3>
         <div className="space-y-2">
@@ -212,7 +205,6 @@ export default function OperatorConsole() {
         </div>
       </div>
 
-      {/* 2. CLIENT CHATS */}
       <div className="w-1/4 border-r bg-white p-4 overflow-y-auto">
         <h3 className="text-xs font-bold uppercase text-slate-400 mb-3">Client Chats</h3>
         <div className="space-y-2">
@@ -235,7 +227,6 @@ export default function OperatorConsole() {
         </div>
       </div>
 
-      {/* 3. MESSAGE THREAD & REPLY DESK */}
       <div className="flex-1 flex flex-col justify-between p-6">
         {selectedHost && (
           <div className="border-b pb-3 mb-4">
