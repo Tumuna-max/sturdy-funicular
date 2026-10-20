@@ -18,42 +18,47 @@ export default function ClientChatPage() {
   const [text, setText] = useState('');
   const [conversationId, setConversationId] = useState(null);
   const [user, setUser] = useState(null);
+  const [sending, setSending] = useState(false);
 
   useEffect(() => {
     async function initChat() {
       if (!profileId) return;
 
-      // 1. Get logged in client user
+      // 1. Get logged in user
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       setUser(user);
 
-      // 2. Load the host profile details
+      // 2. Fetch host profile details
       const { data: host } = await supabase.from('profiles').select('*').eq('id', profileId).single();
       if (host) setHostProfile(host);
 
-      // 3. Find or Create Conversation thread for this exact profile ID
-      let { data: conv } = await supabase
+      // 3. Find existing conversation or create new one
+      const { data: existingConvs } = await supabase
         .from('conversations')
         .select('*')
         .eq('user_id', user.id)
-        .eq('profile_id', profileId)
-        .maybeSingle();
+        .eq('profile_id', profileId);
+
+      let conv = existingConvs && existingConvs.length > 0 ? existingConvs[0] : null;
 
       if (!conv) {
         const { data: newConv, error: createErr } = await supabase
           .from('conversations')
           .insert([{ user_id: user.id, profile_id: profileId }])
-          .select()
-          .single();
-        
-        if (!createErr) conv = newConv;
+          .select('*');
+
+        if (newConv && newConv.length > 0) {
+          conv = newConv[0];
+        } else if (createErr) {
+          console.error('Conversation create error:', createErr);
+        }
       }
 
       if (conv) {
         setConversationId(conv.id);
 
-        // 4. Fetch existing messages
+        // 4. Fetch messages
         const { data: msgs } = await supabase
           .from('messages')
           .select('*')
@@ -69,33 +74,62 @@ export default function ClientChatPage() {
 
   const handleSend = async (e) => {
     e.preventDefault();
-    if (!text.trim() || !conversationId || !user) return;
+    if (!text.trim() || !user) return;
+    setSending(true);
 
+    let currentConvId = conversationId;
+
+    // Fallback: If conversation wasn't created yet, create it now
+    if (!currentConvId) {
+      const { data: newConv } = await supabase
+        .from('conversations')
+        .insert([{ user_id: user.id, profile_id: profileId }])
+        .select('*');
+
+      if (newConv && newConv.length > 0) {
+        currentConvId = newConv[0].id;
+        setConversationId(currentConvId);
+      }
+    }
+
+    if (!currentConvId) {
+      alert('Could not establish conversation thread. Please refresh.');
+      setSending(false);
+      return;
+    }
+
+    // Insert Message
     const { data: newMsg, error } = await supabase
       .from('messages')
       .insert([
         {
-          conversation_id: conversationId,
+          conversation_id: currentConvId,
           sender_id: user.id,
           content: text
         }
       ])
-      .select()
-      .single();
+      .select('*');
 
-    if (!error && newMsg) {
-      setMessages((prev) => [...prev, newMsg]);
+    if (!error && newMsg && newMsg.length > 0) {
+      setMessages((prev) => [...prev, newMsg[0]]);
       setText('');
     } else {
-      alert('Error sending message: ' + (error?.message || 'Check database connection'));
+      alert('Send failed: ' + (error?.message || 'Database error'));
     }
+    setSending(false);
   };
 
   return (
     <div className="flex flex-col h-screen max-w-4xl mx-auto bg-white p-6">
       {hostProfile && (
         <div className="flex items-center gap-3 border-b pb-4 mb-4">
-          <img src={hostProfile.image_url} alt={hostProfile.name} className="w-12 h-12 rounded-full object-cover" />
+          {hostProfile.image_url ? (
+            <img src={hostProfile.image_url} alt={hostProfile.name} className="w-12 h-12 rounded-full object-cover" />
+          ) : (
+            <div className="w-12 h-12 rounded-full bg-rose-500 text-white font-bold flex items-center justify-center">
+              {hostProfile.name?.substring(0, 2).toUpperCase()}
+            </div>
+          )}
           <div>
             <h2 className="font-bold text-lg text-slate-800">{hostProfile.name}, {hostProfile.age}</h2>
             <p className="text-xs text-emerald-600 font-semibold">Online now</p>
@@ -103,7 +137,7 @@ export default function ClientChatPage() {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto space-y-3 mb-4 p-2 bg-slate-50 rounded-xl border">
+      <div className="flex-1 overflow-y-auto space-y-3 mb-4 p-4 bg-slate-50 rounded-xl border">
         {messages.length === 0 ? (
           <div className="h-full flex items-center justify-center text-slate-400 text-sm italic">
             Start a conversation with {hostProfile?.name || 'this host'}
@@ -127,8 +161,12 @@ export default function ClientChatPage() {
           placeholder="Type a message (1 credit)..."
           className="flex-1 border border-slate-300 rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
-        <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-3 rounded-xl transition shadow">
-          Send
+        <button
+          type="submit"
+          disabled={sending}
+          className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-3 rounded-xl transition shadow"
+        >
+          {sending ? 'Sending...' : 'Send'}
         </button>
       </form>
     </div>
