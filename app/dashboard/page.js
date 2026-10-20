@@ -10,7 +10,7 @@ const supabase = createClient(
 
 export default function DashboardPage() {
   const [user, setUser] = useState(null);
-  const [name, setName] = useState('');
+  const [fullName, setFullName] = useState('');
   const [age, setAge] = useState('');
   const [location, setLocation] = useState('');
   const [hobbies, setHobbies] = useState('');
@@ -18,13 +18,13 @@ export default function DashboardPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    async function loadProfile() {
+    async function loadUserData() {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         setUser(user);
         const { data } = await supabase.from('users').select('*').eq('id', user.id).single();
         if (data) {
-          setName(data.name || '');
+          setFullName(data.full_name || '');
           setAge(data.age || '');
           setLocation(data.location || '');
           setHobbies(data.hobbies || '');
@@ -32,103 +32,101 @@ export default function DashboardPage() {
         }
       }
     }
-    loadProfile();
+    loadUserData();
   }, []);
 
-  const handleSave = async (e) => {
+  const handleSaveProfile = async (e) => {
     e.preventDefault();
     if (!user) return;
     setSaving(true);
 
-    const { error } = await supabase.from('users').update({
-      name,
-      age: parseInt(age) || null,
-      location,
-      hobbies,
-      bio,
-    }).eq('id', user.id);
+    const { error } = await supabase.from('users').upsert({
+      id: user.id,
+      email: user.email,
+      full_name: fullName,
+      age: age ? parseInt(age) : null,
+      location: location,
+      hobbies: hobbies,
+      bio: bio
+    });
 
+    if (error) {
+      alert('Error updating profile: ' + error.message);
+    } else {
+      alert('Profile updated successfully!');
+    }
     setSaving(false);
-    if (error) alert('Error updating profile: ' + error.message);
-    else alert('Profile updated successfully!');
   };
 
   return (
-    <div className="p-8 max-w-5xl mx-auto space-y-8">
-      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-extrabold text-slate-900">My Profile Settings</h1>
-          <p className="text-xs text-slate-400">Update your personal details, age, location, and hobbies.</p>
-        </div>
-        <div className="bg-blue-50 text-blue-700 px-4 py-2 rounded-xl text-xs font-bold border border-blue-200">
-          {user?.email}
-        </div>
-      </div>
+    <div className="max-w-3xl mx-auto p-6 bg-white rounded-2xl shadow-sm mt-6 border border-slate-200">
+      <h1 className="text-2xl font-bold text-slate-800 mb-1">My Profile Settings</h1>
+      <p className="text-xs text-slate-500 mb-6">Update your personal details, age, and bio</p>
 
-      <form onSubmit={handleSave} className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+      <form onSubmit={handleSaveProfile} className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="text-xs font-bold text-slate-600 block mb-1">Full Name</label>
+            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Full Name</label>
             <input
               type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Tumuna Frumence"
-              className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-blue-500"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg p-2.5 text-sm"
+              placeholder="e.g. John Doe"
             />
           </div>
           <div>
-            <label className="text-xs font-bold text-slate-600 block mb-1">Age</label>
+            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Age</label>
             <input
               type="number"
               value={age}
               onChange={(e) => setAge(e.target.value)}
-              placeholder="e.g. 25"
-              className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-blue-500"
+              className="w-full border border-slate-300 rounded-lg p-2.5 text-sm"
+              placeholder="25"
             />
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+        <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="text-xs font-bold text-slate-600 block mb-1">Location / Country</label>
+            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Location / Country</label>
             <input
               type="text"
               value={location}
               onChange={(e) => setLocation(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg p-2.5 text-sm"
               placeholder="e.g. Mombasa, Kenya"
-              className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-blue-500"
             />
           </div>
           <div>
-            <label className="text-xs font-bold text-slate-600 block mb-1">Hobbies & Interests</label>
+            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Hobbies & Interests</label>
             <input
               type="text"
               value={hobbies}
               onChange={(e) => setHobbies(e.target.value)}
-              placeholder="e.g. Travel, Football, Coding"
-              className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-blue-500"
+              className="w-full border border-slate-300 rounded-lg p-2.5 text-sm"
+              placeholder="e.g. Travel, Movies"
             />
           </div>
         </div>
 
         <div>
-          <label className="text-xs font-bold text-slate-600 block mb-1">About Myself / Bio</label>
+          <label className="block text-xs font-bold uppercase text-slate-500 mb-1">About Myself / Bio</label>
           <textarea
+            rows="4"
             value={bio}
             onChange={(e) => setBio(e.target.value)}
-            rows="3"
-            placeholder="Write a brief introduction about yourself..."
-            className="w-full border border-slate-300 rounded-xl p-4 text-xs focus:outline-none focus:border-blue-500"
-          />
+            className="w-full border border-slate-300 rounded-lg p-2.5 text-sm"
+            placeholder="Tell us about yourself..."
+          ></textarea>
         </div>
 
         <button
           type="submit"
           disabled={saving}
-          className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-3 rounded-xl text-xs transition shadow-md"
+          className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2.5 rounded-lg text-sm transition"
         >
-          {saving ? 'Saving...' : 'Save Profile Details'}
+          {saving ? 'Saving...' : 'Save Profile'}
         </button>
       </form>
     </div>
