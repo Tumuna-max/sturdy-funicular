@@ -13,62 +13,44 @@ export default function OperatorConsole() {
   const [selectedHost, setSelectedHost] = useState(null);
   const [activeChats, setActiveChats] = useState([]);
   const [selectedClient, setSelectedClient] = useState(null);
-  const [messages, setMessages] = useState([]);
   const [replyText, setReplyText] = useState('');
 
-  // 1. Fetch Host Profiles
+  // Fetch Host Profiles
   useEffect(() => {
     async function fetchHosts() {
       const { data } = await supabase.from('profiles').select('*');
       if (data && data.length > 0) {
         setHosts(data);
-        setSelectedHost(data[0]); // Select first host by default
+        setSelectedHost(data[0]);
       }
     }
     fetchHosts();
   }, []);
 
-  // 2. Fetch Active Client Chats whenever Selected Host changes
+  // Fetch Active Chats for Selected Host
   useEffect(() => {
     if (!selectedHost) return;
 
     async function fetchHostChats() {
-      // Get distinct clients who messaged this host
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('messages')
         .select('sender_id, created_at, content')
-        .eq('receiver_id', selectedHost.id)
+        .or(`receiver_id.eq.${selectedHost.id},sender_id.eq.${selectedHost.id}`)
         .order('created_at', { ascending: false });
 
       if (data) {
-        // Group messages by client ID
-        const uniqueClients = Array.from(new Set(data.map(m => m.sender_id)))
-          .map(id => {
-            return {
-              id,
-              lastMessage: data.find(m => m.sender_id === id)?.content
-            };
-          });
-        setActiveChats(uniqueClients);
+        const uniqueClientIds = Array.from(new Set(data.map(m => m.sender_id).filter(id => id !== selectedHost.id)));
+        const chats = uniqueClientIds.map(id => ({
+          id,
+          lastMessage: data.find(m => m.sender_id === id || m.receiver_id === id)?.content
+        }));
+        setActiveChats(chats);
       }
     }
 
     fetchHostChats();
-
-    // Subscribe to new incoming messages in real-time
-    const channel = supabase
-      .channel('operator-messages')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => {
-        fetchHostChats();
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, [selectedHost]);
 
-  // 3. Send Reply as Host
   const handleSendReply = async (e) => {
     e.preventDefault();
     if (!replyText.trim() || !selectedHost || !selectedClient) return;
@@ -77,8 +59,7 @@ export default function OperatorConsole() {
       {
         sender_id: selectedHost.id,
         receiver_id: selectedClient.id,
-        content: replyText,
-        is_operator_reply: true
+        content: replyText
       }
     ]);
 
@@ -90,7 +71,7 @@ export default function OperatorConsole() {
   };
 
   return (
-    <div className="flex h-screen bg-slate-50 text-slate-800">
+    <div className="flex h-full min-h-screen bg-slate-50 text-slate-800">
       {/* 1. SELECT HOST PROFILE */}
       <div className="w-1/4 border-r border-slate-200 bg-white p-4 overflow-y-auto">
         <h3 className="text-xs font-bold uppercase text-slate-400 mb-3 tracking-wider">Select Host Profile</h3>
@@ -103,9 +84,16 @@ export default function OperatorConsole() {
                 selectedHost?.id === host.id ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-50 hover:bg-slate-100'
               }`}
             >
-              <img src={host.image_url} alt={host.name} className="w-10 h-10 rounded-full object-cover" />
-              <div className="text-left">
-                <p className="font-bold text-sm">{host.name}</p>
+              {/* Image or Fallback Avatar */}
+              {host.image_url ? (
+                <img src={host.image_url} alt={host.name} className="w-10 h-10 rounded-full object-cover shrink-0" />
+              ) : (
+                <div className="w-10 h-10 rounded-full bg-rose-500 text-white font-bold flex items-center justify-center text-xs shrink-0">
+                  {host.name ? host.name.substring(0, 2).toUpperCase() : 'HP'}
+                </div>
+              )}
+              <div className="text-left overflow-hidden">
+                <p className="font-bold text-sm truncate">{host.name}</p>
                 <p className={`text-xs ${selectedHost?.id === host.id ? 'text-blue-100' : 'text-slate-500'}`}>
                   Age {host.age}
                 </p>
@@ -130,7 +118,7 @@ export default function OperatorConsole() {
                   selectedClient?.id === chat.id ? 'border-blue-600 bg-blue-50' : 'border-slate-200 hover:bg-slate-50'
                 }`}
               >
-                <p className="text-xs font-bold text-slate-700 truncate">Client: {chat.id.substring(0, 8)}...</p>
+                <p className="text-xs font-bold text-slate-700 truncate">Client ID: {chat.id.substring(0, 8)}...</p>
                 <p className="text-xs text-slate-500 truncate mt-1">{chat.lastMessage}</p>
               </button>
             ))}
@@ -138,10 +126,10 @@ export default function OperatorConsole() {
         )}
       </div>
 
-      {/* 3. CHAT CONVERSATION & REPLY DESK */}
-      <div className="flex-1 flex flex-col justify-between bg-slate-50 p-6">
+      {/* 3. CHAT DESK */}
+      <div className="flex-1 flex flex-col justify-between p-6">
         <div>
-          {selectedHost ? (
+          {selectedHost && (
             <div className="flex justify-between items-center border-b pb-4 mb-4">
               <div>
                 <span className="text-sm font-bold text-slate-700">Replying as: </span>
@@ -151,13 +139,10 @@ export default function OperatorConsole() {
                 Slots Remaining: 20 / 20
               </span>
             </div>
-          ) : (
-            <p className="text-sm text-slate-500">Select a host profile to start replying.</p>
           )}
         </div>
 
-        {/* Reply Form */}
-        <form onSubmit={handleSendReply} className="flex gap-3">
+        <form onSubmit={handleSendReply} className="flex gap-3 mt-auto">
           <input
             type="text"
             value={replyText}
