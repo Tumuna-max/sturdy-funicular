@@ -1,216 +1,169 @@
 'use client';
 
+import './globals.css';
+import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { useRouter, usePathname } from 'next/navigation';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-export default function AdminPage() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [passwordInput, setPasswordInput] = useState('');
-  
-  // Worker Form State
-  const [workerEmail, setWorkerEmail] = useState('');
-  const [workerPassword, setWorkerPassword] = useState('');
-  const [workerLoading, setWorkerLoading] = useState(false);
+export default function RootLayout({ children }) {
+  const [user, setUser] = useState(null);
+  const [credits, setCredits] = useState(0);
+  const router = useRouter();
+  const pathname = usePathname();
 
-  // Host Profile Form State
-  const [profileName, setProfileName] = useState('');
-  const [profileAge, setProfileAge] = useState('');
-  const [profileImage, setProfileImage] = useState('');
-  const [profileLoading, setProfileLoading] = useState(false);
-  const [profiles, setProfiles] = useState([]);
+  const isAdminPage = pathname.startsWith('/admin');
+  const isOperatorPage = pathname.startsWith('/operator');
 
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchProfiles();
+    async function loadUser() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setUser(user);
+        const { data } = await supabase.from('users').select('credits').eq('id', user.id).single();
+        if (data) setCredits(data.credits);
+      }
     }
-  }, [isAuthenticated]);
+    loadUser();
+  }, [pathname]);
 
-  const handleLogin = (e) => {
-    e.preventDefault();
-    if (passwordInput === 'FrumenceAdmin2026!') {
-      setIsAuthenticated(true);
-    } else {
-      alert('Incorrect Master Password');
-    }
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    router.push('/login');
+    router.refresh();
   };
 
-  const fetchProfiles = async () => {
-    const { data } = await supabase.from('profiles').select('*');
-    if (data) setProfiles(data);
-  };
-
-  const handleCreateWorker = async (e) => {
-    e.preventDefault();
-    setWorkerLoading(true);
-
-    try {
-      const cleanEmail = workerEmail.includes('@') 
-        ? workerEmail 
-        : `${workerEmail.trim().toLowerCase()}@frumencedate.internal`;
-
-      const response = await fetch('/api/admin/create-worker', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          email: cleanEmail, 
-          password: workerPassword,
-          role: 'worker',
-          operator_slots: 20 
-        })
-      });
-
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Failed to create worker');
-
-      alert(`Worker successfully created!\nEmail: ${cleanEmail}`);
-      setWorkerEmail('');
-      setWorkerPassword('');
-    } catch (err) {
-      alert('Error: ' + err.message);
-    } finally {
-      setWorkerLoading(false);
-    }
-  };
-
-  const handleAddProfile = async (e) => {
-    e.preventDefault();
-    setProfileLoading(true);
-
-    try {
-      const { error } = await supabase.from('profiles').insert([
-        { name: profileName, age: parseInt(profileAge), image_url: profileImage, online: true }
-      ]);
-
-      if (error) throw error;
-
-      alert('Host Profile added successfully!');
-      setProfileName('');
-      setProfileAge('');
-      setProfileImage('');
-      fetchProfiles();
-    } catch (err) {
-      alert('Error adding profile: ' + err.message);
-    } finally {
-      setProfileLoading(false);
-    }
-  };
-
-  // 1. PASSWORD GATEWAY SCREEN
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-900 p-4">
-        <form onSubmit={handleLogin} className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full space-y-4">
-          <h2 className="text-xl font-extrabold text-slate-800 text-center">🔐 Admin Gateway</h2>
-          <p className="text-xs text-slate-500 text-center">Enter master admin password to continue</p>
-          <input
-            type="password"
-            placeholder="Master Password"
-            value={passwordInput}
-            onChange={(e) => setPasswordInput(e.target.value)}
-            className="w-full border border-slate-300 rounded-lg p-3 text-sm"
-            required
-          />
-          <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg">
-            Authenticate Admin Console
-          </button>
-        </form>
-      </div>
-    );
-  }
-
-  // 2. MAIN ADMIN DASHBOARD (Workers + Profiles)
   return (
-    <div className="p-8 max-w-5xl mx-auto space-y-12">
-      <div className="flex justify-between items-center border-b pb-4">
-        <h1 className="text-3xl font-extrabold text-slate-900">⚙️ Admin Control Panel</h1>
-        <button onClick={() => setIsAuthenticated(false)} className="text-sm text-rose-600 font-semibold border border-rose-200 px-3 py-1.5 rounded-lg hover:bg-rose-50">
-          Lock Admin
-        </button>
-      </div>
+    <html lang="en">
+      <body className="bg-slate-100 text-slate-800 antialiased min-h-screen">
+        <div className="flex max-w-[1600px] mx-auto min-h-screen bg-white shadow-xl">
+          
+          {/* LEFT SIDEBAR */}
+          <aside className="w-64 border-r border-slate-200 p-4 flex flex-col justify-between shrink-0 bg-white">
+            <div className="space-y-6">
+              {/* Logo / Brand Name */}
+              <Link href="/" className="flex items-center gap-2 text-blue-600 font-extrabold text-xl px-2">
+                <span className="text-2xl">🌹</span> Frumence Date
+              </Link>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        {/* CREATE WORKER SECTION */}
-        <div className="bg-white p-6 rounded-2xl shadow-md border border-slate-200 space-y-4">
-          <h2 className="text-xl font-bold text-slate-800">👩‍💻 Create Operator Account</h2>
-          <form onSubmit={handleCreateWorker} className="space-y-4">
-            <div>
-              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Worker Username / Email</label>
-              <input 
-                type="text" 
-                value={workerEmail} 
-                onChange={(e) => setWorkerEmail(e.target.value)}
-                placeholder="e.g. operator1"
-                required
-                className="w-full border border-slate-300 rounded-lg p-2.5 text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Password</label>
-              <input 
-                type="password" 
-                value={workerPassword} 
-                onChange={(e) => setWorkerPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-                className="w-full border border-slate-300 rounded-lg p-2.5 text-sm"
-              />
-            </div>
-            <button type="submit" disabled={workerLoading} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-lg">
-              {workerLoading ? 'Creating...' : 'Create Worker Account'}
-            </button>
-          </form>
-        </div>
+              {/* ADMIN VIEW */}
+              {isAdminPage ? (
+                <div className="space-y-4">
+                  <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 text-center">
+                    <p className="text-xs font-bold text-amber-800">🔒 Admin Gateway</p>
+                  </div>
+                  <nav className="space-y-1 text-sm font-medium text-slate-600">
+                    <Link href="/admin" className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-slate-100 text-slate-900 font-semibold">
+                      <span>⚙️</span> Admin Console
+                    </Link>
+                    <Link href="/" className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-100">
+                      <span>🏠</span> Back to Main Site
+                    </Link>
+                  </nav>
+                </div>
+              ) : isOperatorPage ? (
+                /* OPERATOR VIEW (No Back to Main Site link, keeps branding) */
+                <div className="space-y-4">
+                  <div className="bg-blue-50 border border-blue-200 rounded-2xl p-3 text-center">
+                    <p className="text-xs font-bold text-blue-800">🎧 Operator Console</p>
+                    <span className="text-[10px] text-blue-600 truncate block mt-1">{user ? user.email : 'Worker Desk'}</span>
+                  </div>
+                  <nav className="space-y-1 text-sm font-medium text-slate-600">
+                    <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-slate-100 text-slate-900 font-semibold">
+                      <span>💬</span> Active Chat Desk
+                    </div>
+                  </nav>
+                  {user && (
+                    <button onClick={handleLogout} className="w-full mt-4 border border-rose-300 text-rose-600 py-2 rounded-xl text-sm font-medium hover:bg-rose-50">
+                      Logout Operator
+                    </button>
+                  )}
+                </div>
+              ) : (
+                /* CLIENT VIEW (Default) */
+                <>
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-rose-500 text-white font-bold flex items-center justify-center text-sm">
+                      {user ? user.email.substring(0, 2).toUpperCase() : 'GS'}
+                    </div>
+                    <div className="flex-1 overflow-hidden">
+                      <p className="text-xs font-bold text-slate-800 truncate">{user ? user.email : 'Guest Visitor'}</p>
+                      <div className="flex gap-1 text-xs mt-1">
+                        {user ? (
+                          <>
+                            <Link href="/dashboard" className="border border-slate-300 rounded px-2 py-0.5 font-medium hover:bg-slate-200">
+                              Profile
+                            </Link>
+                            <button onClick={handleLogout} className="border border-rose-300 text-rose-600 rounded px-2 py-0.5 font-medium hover:bg-rose-50">
+                              Logout
+                            </button>
+                          </>
+                        ) : (
+                          <Link href="/login" className="border border-blue-600 text-blue-600 font-bold rounded px-3 py-0.5 hover:bg-blue-50">
+                            Sign In / Join
+                          </Link>
+                        )}
+                      </div>
+                    </div>
+                  </div>
 
-        {/* ADD HOST PROFILES SECTION */}
-        <div className="bg-white p-6 rounded-2xl shadow-md border border-slate-200 space-y-4">
-          <h2 className="text-xl font-bold text-slate-800">🌹 Add Dating Profile (Host)</h2>
-          <form onSubmit={handleAddProfile} className="space-y-4">
-            <div>
-              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Profile Name</label>
-              <input 
-                type="text" 
-                value={profileName} 
-                onChange={(e) => setProfileName(e.target.value)}
-                placeholder="e.g. Jessica S."
-                required
-                className="w-full border border-slate-300 rounded-lg p-2.5 text-sm"
-              />
+                  <Link
+                    href="/topup"
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 shadow-md transition"
+                  >
+                    <span>🪙</span> Add credits ({credits})
+                  </Link>
+
+                  <nav className="space-y-1 text-sm font-medium text-slate-600">
+                    <Link href="/" className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-100 text-slate-900 font-semibold">
+                      <span>💬</span> All chats
+                    </Link>
+                    <Link href="/topup" className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-100">
+                      <span>💳</span> Purchase History
+                    </Link>
+                    <Link href="/dashboard" className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-100">
+                      <span>👤</span> My Profile & Details
+                    </Link>
+                  </nav>
+                </>
+              )}
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Age</label>
-                <input 
-                  type="number" 
-                  value={profileAge} 
-                  onChange={(e) => setProfileAge(e.target.value)}
-                  placeholder="24"
-                  required
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Image URL</label>
-                <input 
-                  type="url" 
-                  value={profileImage} 
-                  onChange={(e) => setProfileImage(e.target.value)}
-                  placeholder="https://..."
-                  required
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm"
-                />
-              </div>
+
+            {/* Bottom Policy Button */}
+            <div className="pt-4 border-t border-slate-200">
+              <button className="w-full border border-slate-300 rounded-xl py-2 text-sm text-slate-600 hover:bg-slate-50">
+                🛡️ Policy
+              </button>
             </div>
-            <button type="submit" profileLoading={profileLoading} className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-2.5 rounded-lg">
-              {profileLoading ? 'Adding...' : 'Add Host Profile'}
-            </button>
-          </form>
+          </aside>
+
+          {/* MAIN CONTENT AREA */}
+          <main className="flex-1 border-r border-slate-200 bg-slate-50 min-w-0">
+            {children}
+          </main>
+
+          {/* RIGHT ACTIVITY PANEL */}
+          {!isAdminPage && !isOperatorPage && (
+            <aside className="w-64 p-4 hidden xl:block shrink-0 bg-white space-y-6">
+              <div>
+                <h3 className="text-xs font-bold text-slate-400 tracking-wider uppercase mb-3">Notifications</h3>
+                <p className="text-xs text-slate-400 italic">No new notifications</p>
+              </div>
+              <div className="border-t border-slate-200 pt-4">
+                <h3 className="text-xs font-bold text-slate-400 tracking-wider uppercase mb-3">Members Activity</h3>
+                <p className="text-xs text-slate-400 italic">Recent activity will appear here</p>
+              </div>
+            </aside>
+          )}
+
         </div>
-      </div>
-    </div>
+      </body>
+    </html>
   );
 }
