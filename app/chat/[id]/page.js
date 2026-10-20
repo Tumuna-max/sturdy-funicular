@@ -27,12 +27,12 @@ export default function ClientChatPage() {
       if (!user) return;
       setUser(user);
 
-      // Fetch host profile
+      // Fetch host profile details
       const { data: host } = await supabase.from('profiles').select('*').eq('id', profileId).maybeSingle();
       if (host) setHostProfile(host);
 
-      // Fetch all messages between this user and this host profile
-      const { data: msgs, error } = await supabase
+      // Load existing messages between user and this host profile
+      const { data: msgs } = await supabase
         .from('messages')
         .select('*')
         .or(`and(sender_id.eq.${user.id},receiver_id.eq.${profileId}),and(sender_id.eq.${profileId},receiver_id.eq.${user.id}),and(sender_id.eq.${user.id},profile_id.eq.${profileId})`)
@@ -49,7 +49,6 @@ export default function ClientChatPage() {
     if (!text.trim() || !user || !profileId) return;
     setSending(true);
 
-    // Direct Message Insert
     const { data: newMsg, error } = await supabase
       .from('messages')
       .insert([
@@ -66,23 +65,7 @@ export default function ClientChatPage() {
       setMessages((prev) => [...prev, newMsg[0]]);
       setText('');
     } else {
-      // Fallback if schema doesn't have receiver_id
-      const { data: fallbackMsg, error: fallbackErr } = await supabase
-        .from('messages')
-        .insert([
-          {
-            sender_id: user.id,
-            content: text
-          }
-        ])
-        .select('*');
-
-      if (!fallbackErr && fallbackMsg) {
-        setMessages((prev) => [...prev, fallbackMsg[0]]);
-        setText('');
-      } else {
-        alert('Send failed: ' + (error?.message || fallbackErr?.message || 'Database error'));
-      }
+      alert('Send failed: ' + (error?.message || 'Check database connection'));
     }
     setSending(false);
   };
@@ -91,17 +74,11 @@ export default function ClientChatPage() {
     <div className="flex flex-col h-screen max-w-4xl mx-auto bg-white p-6">
       {hostProfile && (
         <div className="flex items-center gap-3 border-b pb-4 mb-4">
-          {hostProfile.image_url || hostProfile.avatar_url || hostProfile.image ? (
-            <img 
-              src={hostProfile.image_url || hostProfile.avatar_url || hostProfile.image} 
-              alt={hostProfile.name} 
-              className="w-12 h-12 rounded-full object-cover shrink-0 border" 
-            />
-          ) : (
-            <div className="w-12 h-12 rounded-full bg-rose-500 text-white font-bold flex items-center justify-center shrink-0">
-              {hostProfile.name?.substring(0, 2).toUpperCase()}
-            </div>
-          )}
+          <img 
+            src={hostProfile.image_url || hostProfile.avatar_url || hostProfile.image || 'https://via.placeholder.com/150'} 
+            alt={hostProfile.name} 
+            className="w-12 h-12 rounded-full object-cover shrink-0 border" 
+          />
           <div>
             <h2 className="font-bold text-lg text-slate-800">{hostProfile.name}, {hostProfile.age}</h2>
             <p className="text-xs text-emerald-600 font-semibold">Online now</p>
