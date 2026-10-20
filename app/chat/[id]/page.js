@@ -27,11 +27,9 @@ export default function ClientChatPage() {
       if (!user) return;
       setUser(user);
 
-      // Fetch host profile details
       const { data: host } = await supabase.from('profiles').select('*').eq('id', profileId).maybeSingle();
       if (host) setHostProfile(host);
 
-      // Load existing messages between user and this host profile
       const { data: msgs } = await supabase
         .from('messages')
         .select('*')
@@ -65,7 +63,7 @@ export default function ClientChatPage() {
       setMessages((prev) => [...prev, newMsg[0]]);
       setText('');
     } else {
-      alert('Send failed: ' + (error?.message || 'Check database connection'));
+      alert('Send failed: ' + (error?.message || 'Database error'));
     }
     setSending(false);
   };
