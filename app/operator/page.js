@@ -16,12 +16,12 @@ export default function OperatorConsole() {
 
   const [hosts, setHosts] = useState([]);
   const [selectedHost, setSelectedHost] = useState(null);
-  const [activeChats, setActiveChats] = useState([]);
-  const [selectedClient, setSelectedClient] = useState(null);
+  const [conversations, setConversations] = useState([]);
+  const [selectedConv, setSelectedConv] = useState(null);
   const [messages, setMessages] = useState([]);
   const [replyText, setReplyText] = useState('');
 
-  // 1. Check Auth Session on Load
+  // 1. Auth check
   useEffect(() => {
     async function checkAuth() {
       const { data: { user } } = await supabase.auth.getUser();
@@ -30,164 +30,153 @@ export default function OperatorConsole() {
     checkAuth();
   }, []);
 
-  // 2. Fetch Host Profiles (Checking multiple possible image column names)
+  // 2. Fetch Hosts
   useEffect(() => {
     if (!workerUser) return;
 
     async function fetchHosts() {
-      const { data, error } = await supabase.from('profiles').select('*');
+      const { data } = await supabase.from('profiles').select('*');
       if (data && data.length > 0) {
-        // Map image fields to ensure photos render
-        const formattedHosts = data.map(h => ({
+        const mapped = data.map(h => ({
           ...h,
           resolvedImage: h.image_url || h.avatar_url || h.photo_url || h.image || ''
         }));
-        setHosts(formattedHosts);
-        setSelectedHost(formattedHosts[0]);
+        setHosts(mapped);
+        setSelectedHost(mapped[0]);
       }
     }
     fetchHosts();
   }, [workerUser]);
 
-  // 3. Fetch All Messages (Diagnostic mode to verify data connection)
+  // 3. Fetch Conversations for Selected Host Profile
   useEffect(() => {
     if (!workerUser || !selectedHost) return;
 
-    async function fetchHostChats() {
-      // Fetch all messages to see what's in the database table
-      const { data, error } = await supabase
-        .from('messages')
+    async function fetchHostConversations() {
+      const { data: convs } = await supabase
+        .from('conversations')
         .select('*')
-        .order('created_at', { ascending: false });
+        .or(`profile_id.eq.${selectedHost.id},user_id.eq.${selectedHost.id}`);
 
-      if (data) {
-        const clientMap = new Map();
-        
-        data.forEach((msg) => {
-          const clientId = msg.sender_id || msg.user_id || 'unknown-client';
-          if (!clientMap.has(clientId)) {
-            clientMap.set(clientId, {
-              id: clientId,
-              lastMessage: msg.content || '[Media/Empty]',
-              time: msg.created_at,
-              isNew: !msg.is_read
-            });
-          }
+      if (convs && convs.length > 0) {
+        const convIds = convs.map(c => c.id);
+
+        const { data: msgs } = await supabase
+          .from('messages')
+          .select('*')
+          .in('conversation_id', convIds)
+          .order('created_at', { ascending: false });
+
+        const formattedConvs = convs.map(c => {
+          const lastMsg = msgs?.find(m => m.conversation_id === c.id);
+          return {
+            ...c,
+            lastMessage: lastMsg?.content || 'New Chat Thread',
+            time: lastMsg?.created_at
+          };
         });
 
-        setActiveChats(Array.from(clientMap.values()));
+        setConversations(formattedConvs);
+      } else {
+        setConversations([]);
       }
     }
 
-    fetchHostChats();
+    fetchHostConversations();
+
+    // Real-time listener
+    const channel = supabase
+      .channel('realtime-operator')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => {
+        fetchHostConversations();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [workerUser, selectedHost]);
 
-  // 4. Fetch Conversation History for Selected Client
+  // 4. Load Conversation History
   useEffect(() => {
-    if (!selectedClient) return;
+    if (!selectedConv) return;
 
-    async function fetchConversation() {
+    async function loadMessages() {
       const { data } = await supabase
         .from('messages')
         .select('*')
-        .or(`sender_id.eq.${selectedClient.id},receiver_id.eq.${selectedClient.id},user_id.eq.${selectedClient.id}`)
+        .eq('conversation_id', selectedConv.id)
         .order('created_at', { ascending: true });
 
-      if (data) {
-        setMessages(data);
-      }
+      if (data) setMessages(data);
     }
 
-    fetchConversation();
-  }, [selectedClient]);
+    loadMessages();
+  }, [selectedConv]);
 
-  // Worker Login Handler
+  // Send Reply
+  const handleSendReply = async (e) => {
+    e.preventDefault();
+    if (!replyText.trim() || !selectedConv || !selectedHost) return;
+
+    const { data: newMsg, error } = await supabase
+      .from('messages')
+      .insert([
+        {
+          conversation_id: selectedConv.id,
+          sender_id: selectedHost.id,
+          content: replyText
+        }
+      ])
+      .select()
+      .single();
+
+    if (!error && newMsg) {
+      setMessages((prev) => [...prev, newMsg]);
+      setReplyText('');
+    } else {
+      alert('Error sending reply: ' + error?.message);
+    }
+  };
+
   const handleWorkerLogin = async (e) => {
     e.preventDefault();
     setLoginLoading(true);
-
-    const cleanEmail = loginEmail.includes('@')
-      ? loginEmail
-      : `${loginEmail.trim().toLowerCase()}@frumencedate.internal`;
+    const cleanEmail = loginEmail.includes('@') ? loginEmail : `${loginEmail.trim().toLowerCase()}@frumencedate.internal`;
 
     const { data, error } = await supabase.auth.signInWithPassword({
       email: cleanEmail,
       password: loginPassword
     });
 
-    if (error) {
-      alert('Login Failed: ' + error.message);
-    } else {
-      setWorkerUser(data.user);
-    }
+    if (error) alert('Login Failed: ' + error.message);
+    else setWorkerUser(data.user);
     setLoginLoading(false);
-  };
-
-  const handleWorkerLogout = async () => {
-    await supabase.auth.signOut();
-    setWorkerUser(null);
-  };
-
-  // Send Reply Handler
-  const handleSendReply = async (e) => {
-    e.preventDefault();
-    if (!replyText.trim() || !selectedHost || !selectedClient) return;
-
-    const { error } = await supabase.from('messages').insert([
-      {
-        sender_id: selectedHost.id,
-        receiver_id: selectedClient.id,
-        content: replyText,
-        is_operator_reply: true,
-        is_read: true
-      }
-    ]);
-
-    if (!error) {
-      setReplyText('');
-      const { data } = await supabase
-        .from('messages')
-        .select('*')
-        .or(`sender_id.eq.${selectedClient.id},receiver_id.eq.${selectedClient.id}`)
-        .order('created_at', { ascending: true });
-      if (data) setMessages(data);
-    } else {
-      alert('Error sending reply: ' + error.message);
-    }
   };
 
   if (!workerUser) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-900 p-4">
-        <form onSubmit={handleWorkerLogin} className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full space-y-5">
-          <div className="text-center">
-            <h2 className="text-2xl font-black text-slate-800">🎧 Operator Portal</h2>
-            <p className="text-xs text-slate-500 mt-1">Enter your assigned worker credentials</p>
-          </div>
-          <div>
-            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Worker Username / Email</label>
-            <input
-              type="text"
-              value={loginEmail}
-              onChange={(e) => setLoginEmail(e.target.value)}
-              placeholder="e.g. operator1"
-              required
-              className="w-full border border-slate-300 rounded-lg p-3 text-sm outline-none"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Password</label>
-            <input
-              type="password"
-              value={loginPassword}
-              onChange={(e) => setLoginPassword(e.target.value)}
-              placeholder="••••••••"
-              required
-              className="w-full border border-slate-300 rounded-lg p-3 text-sm outline-none"
-            />
-          </div>
+        <form onSubmit={handleWorkerLogin} className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full space-y-4">
+          <h2 className="text-2xl font-black text-slate-800 text-center">🎧 Operator Portal</h2>
+          <input
+            type="text"
+            value={loginEmail}
+            onChange={(e) => setLoginEmail(e.target.value)}
+            placeholder="Worker Username"
+            className="w-full border p-3 rounded-lg text-sm"
+            required
+          />
+          <input
+            type="password"
+            value={loginPassword}
+            onChange={(e) => setLoginPassword(e.target.value)}
+            placeholder="Password"
+            className="w-full border p-3 rounded-lg text-sm"
+            required
+          />
           <button type="submit" disabled={loginLoading} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg">
-            {loginLoading ? 'Signing in...' : 'Sign In to Operator Desk'}
+            {loginLoading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
       </div>
@@ -197,28 +186,23 @@ export default function OperatorConsole() {
   return (
     <div className="flex h-screen bg-slate-50 text-slate-800 overflow-hidden">
       {/* 1. HOST PROFILES */}
-      <div className="w-1/4 border-r border-slate-200 bg-white p-4 overflow-y-auto">
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="text-xs font-bold uppercase text-slate-400 tracking-wider">Host Profiles</h3>
-          <button onClick={handleWorkerLogout} className="text-[10px] text-rose-600 font-bold hover:underline">Logout</button>
-        </div>
+      <div className="w-1/4 border-r bg-white p-4 overflow-y-auto">
+        <h3 className="text-xs font-bold uppercase text-slate-400 mb-3">Host Profiles</h3>
         <div className="space-y-2">
           {hosts.map((host) => (
             <button
               key={host.id}
               onClick={() => {
                 setSelectedHost(host);
-                setSelectedClient(null);
+                setSelectedConv(null);
               }}
-              className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${
-                selectedHost?.id === host.id ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-50 hover:bg-slate-100'
-              }`}
+              className={`w-full flex items-center gap-3 p-3 rounded-xl ${selectedHost?.id === host.id ? 'bg-blue-600 text-white shadow' : 'bg-slate-50 hover:bg-slate-100'}`}
             >
               {host.resolvedImage ? (
-                <img src={host.resolvedImage} alt={host.name} className="w-10 h-10 rounded-full object-cover shrink-0 border" />
+                <img src={host.resolvedImage} alt={host.name} className="w-10 h-10 rounded-full object-cover shrink-0" />
               ) : (
-                <div className="w-10 h-10 rounded-full bg-rose-500 text-white font-bold flex items-center justify-center text-xs shrink-0">
-                  {host.name ? host.name.substring(0, 2).toUpperCase() : 'HP'}
+                <div className="w-10 h-10 rounded-full bg-rose-500 text-white font-bold flex items-center justify-center text-xs">
+                  {host.name?.substring(0, 2).toUpperCase()}
                 </div>
               )}
               <div className="text-left overflow-hidden">
@@ -230,69 +214,60 @@ export default function OperatorConsole() {
         </div>
       </div>
 
-      {/* 2. CLIENT CHATS */}
-      <div className="w-1/4 border-r border-slate-200 bg-white p-4 overflow-y-auto">
-        <h3 className="text-xs font-bold uppercase text-slate-400 mb-3 tracking-wider">Client Chats (All)</h3>
+      {/* 2. CONVERSATION LIST */}
+      <div className="w-1/4 border-r bg-white p-4 overflow-y-auto">
+        <h3 className="text-xs font-bold uppercase text-slate-400 mb-3">Client Chats</h3>
         <div className="space-y-2">
-          {activeChats.length === 0 ? (
-            <p className="text-xs text-slate-400 italic">No messages found in database.</p>
+          {conversations.length === 0 ? (
+            <p className="text-xs text-slate-400 italic">No active client chats for this host.</p>
           ) : (
-            activeChats.map((chat) => (
+            conversations.map((c) => (
               <button
-                key={chat.id}
-                onClick={() => setSelectedClient(chat)}
-                className={`w-full text-left p-3 rounded-xl border transition ${
-                  selectedClient?.id === chat.id ? 'border-blue-600 bg-blue-50' : 'border-slate-200 hover:bg-slate-50'
-                }`}
+                key={c.id}
+                onClick={() => setSelectedConv(c)}
+                className={`w-full text-left p-3 rounded-xl border ${selectedConv?.id === c.id ? 'border-blue-600 bg-blue-50' : 'border-slate-200 hover:bg-slate-50'}`}
               >
-                <p className="text-xs font-bold text-slate-700 truncate">Client: {chat.id.substring(0, 8)}...</p>
-                <p className="text-xs text-slate-500 truncate mt-1">{chat.lastMessage}</p>
+                <p className="text-xs font-bold text-slate-700">Chat Thread #{c.id.substring(0, 8)}</p>
+                <p className="text-xs text-slate-500 truncate mt-1">{c.lastMessage}</p>
               </button>
             ))
           )}
         </div>
       </div>
 
-      {/* 3. CONVERSATION DESK */}
-      <div className="flex-1 flex flex-col justify-between bg-slate-50 p-6">
-        <div>
-          {selectedHost && (
-            <div className="flex justify-between items-center border-b pb-4 mb-4">
-              <div>
-                <span className="text-sm font-bold text-slate-700">Replying as: </span>
-                <span className="text-sm font-extrabold text-blue-600">{selectedHost.name}</span>
-              </div>
-              <span className="bg-emerald-50 text-emerald-600 border border-emerald-200 text-xs font-bold px-3 py-1 rounded-full">
-                Slots Remaining: 20 / 20
-              </span>
-            </div>
-          )}
-        </div>
+      {/* 3. MESSAGE THREAD & REPLY DESK */}
+      <div className="flex-1 flex flex-col justify-between p-6">
+        {selectedHost && (
+          <div className="border-b pb-3 mb-4">
+            <span className="text-sm font-bold text-slate-700">Replying as: </span>
+            <span className="text-sm font-extrabold text-blue-600">{selectedHost.name}</span>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto space-y-3 mb-4 pr-2">
-          {!selectedClient ? (
+          {!selectedConv ? (
             <div className="h-full flex items-center justify-center text-slate-400 text-sm italic">
-              Select a client chat from the middle panel to view messages
+              Select a client chat from the middle panel
             </div>
           ) : (
             messages.map((m, idx) => (
-              <div key={idx} className={`flex ${m.is_operator_reply ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-md p-3 rounded-2xl text-sm ${m.is_operator_reply ? 'bg-blue-600 text-white' : 'bg-white border border-slate-200 text-slate-800 shadow-sm'}`}>
-                  <p>{m.content}</p>
+              <div key={idx} className={`flex ${m.sender_id === selectedHost.id ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-md p-3 rounded-2xl text-sm ${m.sender_id === selectedHost.id ? 'bg-blue-600 text-white' : 'bg-white border text-slate-800'}`}>
+                  {m.content}
                 </div>
               </div>
             ))
           )}
         </div>
 
-        {selectedClient && (
+        {selectedConv && (
           <form onSubmit={handleSendReply} className="flex gap-3">
             <input
               type="text"
               value={replyText}
               onChange={(e) => setReplyText(e.target.value)}
               placeholder="Type reply as host..."
-              className="flex-1 border border-slate-300 rounded-xl px-4 py-3 text-sm bg-white"
+              className="flex-1 border rounded-xl p-3 text-sm bg-white"
             />
             <button type="submit" className="bg-blue-600 text-white font-bold px-6 py-3 rounded-xl">
               Send Reply
