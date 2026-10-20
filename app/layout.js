@@ -17,7 +17,6 @@ export default function RootLayout({ children }) {
   const router = useRouter();
   const pathname = usePathname();
 
-  // Check if current route is admin or operator
   const isAdminPage = pathname.startsWith('/admin');
   const isOperatorPage = pathname.startsWith('/operator');
 
@@ -45,7 +44,7 @@ export default function RootLayout({ children }) {
       <body className="bg-slate-100 text-slate-800 antialiased min-h-screen">
         <div className="flex max-w-[1600px] mx-auto min-h-screen bg-white shadow-xl">
           
-          {/* LEFT SIDEBAR (Changes based on page) */}
+          {/* LEFT SIDEBAR */}
           <aside className="w-64 border-r border-slate-200 p-4 flex flex-col justify-between shrink-0 bg-white">
             <div className="space-y-6">
               {/* Logo */}
@@ -70,25 +69,21 @@ export default function RootLayout({ children }) {
                   </nav>
                 </div>
               ) : isOperatorPage ? (
-                /* OPERATOR SIDEBAR VIEW */
+                /* OPERATOR SIDEBAR VIEW (No Back to Main Site link) */
                 <div className="space-y-4">
                   <div className="bg-blue-50 border border-blue-200 rounded-2xl p-3 text-center">
-                    <p className="text-xs font-bold text-blue-800">🎧 Operator Console</p>
-                    <span className="text-[10px] text-blue-600">Live Chat Desk</span>
+                    <p className="text-xs font-bold text-blue-800">🎧 Operator Portal</p>
+                    <span className="text-[10px] text-blue-600">Secure Worker Desk</span>
                   </div>
                   <nav className="space-y-1 text-sm font-medium text-slate-600">
-                    <Link href="/operator" className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-slate-100 text-slate-900 font-semibold">
-                      <span>💬</span> Active Desk
-                    </Link>
-                    <Link href="/" className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-100">
-                      <span>🏠</span> Back to Main Site
-                    </Link>
+                    <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-slate-100 text-slate-900 font-semibold">
+                      <span>💬</span> Active Chat Desk
+                    </div>
                   </nav>
                 </div>
               ) : (
                 /* CLIENT SIDEBAR VIEW (Default) */
                 <>
-                  {/* Profile Card / Auth Status */}
                   <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-rose-500 text-white font-bold flex items-center justify-center text-sm">
                       {user ? user.email.substring(0, 2).toUpperCase() : 'GS'}
@@ -114,7 +109,6 @@ export default function RootLayout({ children }) {
                     </div>
                   </div>
 
-                  {/* Add Credits Button */}
                   <Link
                     href="/topup"
                     className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 shadow-md transition"
@@ -122,7 +116,6 @@ export default function RootLayout({ children }) {
                     <span>🪙</span> Add credits ({credits})
                   </Link>
 
-                  {/* Client Nav Links */}
                   <nav className="space-y-1 text-sm font-medium text-slate-600">
                     <Link href="/" className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-100 text-slate-900 font-semibold">
                       <span>💬</span> All chats
@@ -151,7 +144,7 @@ export default function RootLayout({ children }) {
             {children}
           </main>
 
-          {/* RIGHT ACTIVITY PANEL (Hidden on admin/operator for full width) */}
+          {/* RIGHT ACTIVITY PANEL (Hidden on admin/operator) */}
           {!isAdminPage && !isOperatorPage && (
             <aside className="w-64 p-4 hidden xl:block shrink-0 bg-white space-y-6">
               <div>
