@@ -23,7 +23,26 @@ export default function OperatorConsole() {
   const [file, setFile] = useState(null);
   const [sending, setSending] = useState(false);
 
-  // 1. Auth Check
+  // Sound generator for worker incoming message alerts
+  const playOperatorAlertSound = () => {
+    try {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(440, audioCtx.currentTime); // A4
+      osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.1); // E5
+      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.35);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.35);
+    } catch (e) {
+      console.log('Audio playback prevented by browser policy:', e);
+    }
+  };
+
   useEffect(() => {
     async function checkAuth() {
       const { data: { user } } = await supabase.auth.getUser();
@@ -32,7 +51,7 @@ export default function OperatorConsole() {
     checkAuth();
   }, []);
 
-  // 2. Fetch Host Profiles & Unread Count Badges
+  // Fetch Hosts & Unread Counts
   useEffect(() => {
     if (!workerUser) return;
 
@@ -62,20 +81,9 @@ export default function OperatorConsole() {
     }
 
     fetchHostsAndUnreads();
-
-    const channel = supabase
-      .channel('operator-hosts-notifications')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => {
-        fetchHostsAndUnreads();
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, [workerUser, selectedHost]);
 
-  // 3. Fetch Client Chats for Selected Host Profile
+  // Fetch Client Chats for Selected Host
   useEffect(() => {
     if (!workerUser || !selectedHost) return;
 
@@ -113,20 +121,44 @@ export default function OperatorConsole() {
     }
 
     fetchHostChats();
+  }, [workerUser, selectedHost]);
+
+  // Global Realtime listener for incoming messages across all client chats
+  useEffect(() => {
+    if (!workerUser) return;
 
     const channel = supabase
-      .channel('operator-chat-notifications')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => {
-        fetchHostChats();
-      })
+      .channel('operator-realtime-global')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        (payload) => {
+          const newMsg = payload.new;
+
+          // If incoming message is from a client (not an operator reply)
+          if (!newMsg.is_operator_reply) {
+            playOperatorAlertSound();
+
+            // Append to current open thread if relevant
+            if (
+              selectedClient &&
+              selectedHost &&
+              newMsg.sender_id === selectedClient.id &&
+              (newMsg.receiver_id === selectedHost.id || newMsg.profile_id === selectedHost.id)
+            ) {
+              setMessages((prev) => [...prev, newMsg]);
+            }
+          }
+        }
+      )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [workerUser, selectedHost]);
+  }, [workerUser, selectedHost, selectedClient]);
 
-  // 4. Load Thread & Auto Mark Messages as Read
+  // Load Thread & Auto Mark Messages as Read
   useEffect(() => {
     if (!selectedClient || !selectedHost) return;
 
@@ -156,7 +188,6 @@ export default function OperatorConsole() {
     loadThreadAndMarkRead();
   }, [selectedClient, selectedHost]);
 
-  // 5. Reply as Host (Supports Text + Media)
   const handleSendReply = async (e) => {
     e.preventDefault();
     if ((!replyText.trim() && !file) || !selectedHost || !selectedClient) return;
