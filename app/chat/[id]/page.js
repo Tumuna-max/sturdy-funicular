@@ -18,6 +18,7 @@ export default function ClientChatPage() {
   const [text, setText] = useState('');
   const [user, setUser] = useState(null);
   const [credits, setCredits] = useState(0);
+  const [unlockedMedia, setUnlockedMedia] = useState({}); // Track unlocked msg IDs
   const [file, setFile] = useState(null);
   const [sending, setSending] = useState(false);
 
@@ -50,17 +51,17 @@ export default function ClientChatPage() {
     initChat();
   }, [profileId]);
 
+  // Send Message Logic (2 credits text, 10 credits photo, 15 credits video)
   const handleSend = async (e) => {
     e.preventDefault();
     if ((!text.trim() && !file) || !user || !profileId) return;
 
-    // Determine credit cost ( 2 credit for text, 10 credits for photo, 25 credits for video)
     let isVideo = file && file.type.startsWith('video');
     let isImage = file && file.type.startsWith('image');
-    let cost = isVideo ? 5 : 1;
+    let cost = isVideo ? 15 : (isImage ? 10 : 2);
 
     if (credits < cost) {
-      alert(`Insufficient credits! You need ${cost} credit(s) to send this message.`);
+      alert(`Insufficient credits! You need ${cost} credits to send this ${isVideo ? 'Video' : isImage ? 'Photo' : 'Text'}.`);
       return;
     }
 
@@ -68,11 +69,10 @@ export default function ClientChatPage() {
     let uploadedMediaUrl = null;
     let mediaType = isVideo ? 'video' : isImage ? 'image' : null;
 
-    // Upload image/video to Supabase Storage if attached
     if (file) {
       const fileExt = file.name.split('.').pop();
       const fileName = `${user.id}_${Date.now()}.${fileExt}`;
-      const { data: storageData, error: uploadErr } = await supabase.storage
+      const { error: uploadErr } = await supabase.storage
         .from('chat-media')
         .upload(fileName, file);
 
@@ -86,7 +86,6 @@ export default function ClientChatPage() {
       uploadedMediaUrl = publicUrlData.publicUrl;
     }
 
-    // Insert Message
     const { data: newMsg, error } = await supabase
       .from('messages')
       .insert([
@@ -102,7 +101,6 @@ export default function ClientChatPage() {
       .select('*');
 
     if (!error && newMsg && newMsg.length > 0) {
-      // Deduct credits from user
       const newCreditBalance = credits - cost;
       await supabase.from('users').update({ credits: newCreditBalance }).eq('id', user.id);
       setCredits(newCreditBalance);
@@ -114,6 +112,22 @@ export default function ClientChatPage() {
       alert('Send failed: ' + (error?.message || 'Database error'));
     }
     setSending(false);
+  };
+
+  // Unlock Media Logic (5 credits photo, 20 credits video)
+  const handleUnlockMedia = async (msgId, mediaType) => {
+    let unlockCost = mediaType === 'video' ? 20 : 5;
+
+    if (credits < unlockCost) {
+      alert(`Insufficient credits! You need ${unlockCost} credits to unlock this ${mediaType}.`);
+      return;
+    }
+
+    const newCreditBalance = credits - unlockCost;
+    await supabase.from('users').update({ credits: newCreditBalance }).eq('id', user.id);
+    setCredits(newCreditBalance);
+
+    setUnlockedMedia((prev) => ({ ...prev, [msgId]: true }));
   };
 
   return (
@@ -144,19 +158,44 @@ export default function ClientChatPage() {
             Start a conversation with {hostProfile?.name || 'this host'}
           </div>
         ) : (
-          messages.map((m, idx) => (
-            <div key={idx} className={`flex ${m.sender_id === user?.id ? 'justify-end' : 'justify-start'}`}>
-              <div className={`p-3 rounded-2xl max-w-md text-sm ${m.sender_id === user?.id ? 'bg-blue-600 text-white' : 'bg-white border text-slate-800 shadow-sm'}`}>
-                {m.media_url && m.media_type === 'image' && (
-                  <img src={m.media_url} alt="Attached image" className="rounded-xl mb-2 max-h-60 w-full object-cover" />
-                )}
-                {m.media_url && m.media_type === 'video' && (
-                  <video src={m.media_url} controls className="rounded-xl mb-2 max-h-60 w-full object-cover" />
-                )}
-                {m.content && <p>{m.content}</p>}
+          messages.map((m) => {
+            const isMe = m.sender_id === user?.id;
+            const isUnlocked = isMe || unlockedMedia[m.id];
+
+            return (
+              <div key={m.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                <div className={`p-3 rounded-2xl max-w-md text-sm ${isMe ? 'bg-blue-600 text-white' : 'bg-white border text-slate-800 shadow-sm'}`}>
+                  {m.media_url && (
+                    <div className="relative mb-2 rounded-xl overflow-hidden">
+                      {isUnlocked ? (
+                        m.media_type === 'image' ? (
+                          <img src={m.media_url} alt="Media" className="max-h-60 w-full object-cover rounded-xl" />
+                        ) : (
+                          <video src={m.media_url} controls className="max-h-60 w-full object-cover rounded-xl" />
+                        )
+                      ) : (
+                        <div className="relative border bg-slate-200 h-48 w-full flex flex-col items-center justify-center rounded-xl overflow-hidden p-4">
+                          <div className="absolute inset-0 bg-slate-800/40 backdrop-blur-md"></div>
+                          <div className="relative z-10 text-center text-white space-y-2">
+                            <p className="text-xs font-bold uppercase tracking-wider">
+                              🔒 Locked {m.media_type === 'video' ? 'Video' : 'Photo'}
+                            </p>
+                            <button
+                              onClick={() => handleUnlockMedia(m.id, m.media_type)}
+                              className="bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold text-xs px-4 py-2 rounded-xl shadow transition"
+                            >
+                              Unlock for {m.media_type === 'video' ? '20' : '5'} Credits
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {m.content && <p>{m.content}</p>}
+                </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
@@ -182,7 +221,7 @@ export default function ClientChatPage() {
             type="text"
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Type a message (1 credit for text/photo, 5 credits for video)..."
+            placeholder="Text: 2cr | Send Photo: 10cr | Send Video: 15cr"
             className="flex-1 border border-slate-300 rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           <button
