@@ -21,6 +21,7 @@ export default function OperatorConsole() {
   const [messages, setMessages] = useState([]);
   const [replyText, setReplyText] = useState('');
 
+  // 1. Auth Check
   useEffect(() => {
     async function checkAuth() {
       const { data: { user } } = await supabase.auth.getUser();
@@ -29,18 +30,51 @@ export default function OperatorConsole() {
     checkAuth();
   }, []);
 
+  // 2. Fetch Hosts and calculate global unread counts per host
   useEffect(() => {
     if (!workerUser) return;
-    async function fetchHosts() {
-      const { data } = await supabase.from('profiles').select('*');
-      if (data && data.length > 0) {
-        setHosts(data);
-        setSelectedHost(data[0]);
+
+    async function fetchHostsAndUnreads() {
+      const { data: profilesData } = await supabase.from('profiles').select('*');
+      const { data: unreadMsgs } = await supabase
+        .from('messages')
+        .select('receiver_id, profile_id')
+        .eq('is_read', false)
+        .eq('is_operator_reply', false);
+
+      if (profilesData && profilesData.length > 0) {
+        const formattedHosts = profilesData.map((h) => {
+          const unreadCount = unreadMsgs
+            ? unreadMsgs.filter((m) => m.receiver_id === h.id || m.profile_id === h.id).length
+            : 0;
+          return {
+            ...h,
+            resolvedImg: h.image_url || h.avatar_url || h.image || h.photo_url || '',
+            unreadCount: unreadCount
+          };
+        });
+
+        setHosts(formattedHosts);
+        if (!selectedHost) setSelectedHost(formattedHosts[0]);
       }
     }
-    fetchHosts();
-  }, [workerUser]);
 
+    fetchHostsAndUnreads();
+
+    // Realtime notification sync
+    const channel = supabase
+      .channel('operator-hosts-notifications')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => {
+        fetchHostsAndUnreads();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [workerUser, selectedHost]);
+
+  // 3. Fetch Client Chats for Selected Host Profile
   useEffect(() => {
     if (!workerUser || !selectedHost) return;
 
@@ -61,10 +95,13 @@ export default function OperatorConsole() {
         const chats = clientIds.map((cId) => {
           const clientUser = usersData?.find((u) => u.id === cId);
           const lastMsg = msgs.find((m) => m.sender_id === cId || m.receiver_id === cId || m.profile_id === cId);
+          const isUnread = lastMsg && lastMsg.sender_id === cId && !lastMsg.is_read;
+
           return {
             id: cId,
-            name: clientUser?.full_name || clientUser?.email || `Client ID: ${cId.substring(0, 8)}...`,
-            lastMessage: lastMsg?.content || 'New Message'
+            name: clientUser?.full_name || clientUser?.email || `Client: ${cId.substring(0, 8)}...`,
+            lastMessage: lastMsg?.content || 'New Message',
+            isUnread: isUnread
           };
         });
 
@@ -77,8 +114,8 @@ export default function OperatorConsole() {
     fetchHostChats();
 
     const channel = supabase
-      .channel('operator-realtime-room')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => {
+      .channel('operator-chat-notifications')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => {
         fetchHostChats();
       })
       .subscribe();
@@ -88,10 +125,11 @@ export default function OperatorConsole() {
     };
   }, [workerUser, selectedHost]);
 
+  // 4. Load Message Thread & Mark Messages as Read
   useEffect(() => {
     if (!selectedClient || !selectedHost) return;
 
-    async function loadThread() {
+    async function loadThreadAndMarkRead() {
       const { data } = await supabase
         .from('messages')
         .select('*')
@@ -105,10 +143,17 @@ export default function OperatorConsole() {
             (m.sender_id === selectedClient.id && (m.receiver_id === selectedHost.id || m.profile_id === selectedHost.id))
         );
         setMessages(filtered);
+
+        // Mark incoming client messages as read in database
+        await supabase
+          .from('messages')
+          .update({ is_read: true })
+          .eq('sender_id', selectedClient.id)
+          .or(`receiver_id.eq.${selectedHost.id},profile_id.eq.${selectedHost.id}`);
       }
     }
 
-    loadThread();
+    loadThreadAndMarkRead();
   }, [selectedClient, selectedHost]);
 
   const handleSendReply = async (e) => {
@@ -183,6 +228,7 @@ export default function OperatorConsole() {
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-800 overflow-hidden">
+      {/* 1. HOST PROFILES */}
       <div className="w-1/4 border-r bg-white p-4 overflow-y-auto">
         <h3 className="text-xs font-bold uppercase text-slate-400 mb-3">Host Profiles</h3>
         <div className="space-y-2">
@@ -193,20 +239,28 @@ export default function OperatorConsole() {
                 setSelectedHost(host);
                 setSelectedClient(null);
               }}
-              className={`w-full flex items-center gap-3 p-3 rounded-xl ${
+              className={`w-full flex items-center justify-between p-3 rounded-xl transition ${
                 selectedHost?.id === host.id ? 'bg-blue-600 text-white shadow' : 'bg-slate-50 hover:bg-slate-100'
               }`}
             >
-              <img src={host.image_url || host.avatar_url || host.image} alt={host.name} className="w-10 h-10 rounded-full object-cover shrink-0 border" />
-              <div className="text-left overflow-hidden">
-                <p className="font-bold text-sm truncate">{host.name}</p>
-                <p className={`text-xs ${selectedHost?.id === host.id ? 'text-blue-100' : 'text-slate-500'}`}>Age {host.age}</p>
+              <div className="flex items-center gap-3 overflow-hidden">
+                <img src={host.resolvedImg} alt={host.name} className="w-10 h-10 rounded-full object-cover shrink-0 border" />
+                <div className="text-left overflow-hidden">
+                  <p className="font-bold text-sm truncate">{host.name}</p>
+                  <p className={`text-xs ${selectedHost?.id === host.id ? 'text-blue-100' : 'text-slate-500'}`}>Age {host.age}</p>
+                </div>
               </div>
+              {host.unreadCount > 0 && (
+                <span className="bg-rose-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse">
+                  {host.unreadCount}
+                </span>
+              )}
             </button>
           ))}
         </div>
       </div>
 
+      {/* 2. CLIENT CHATS */}
       <div className="w-1/4 border-r bg-white p-4 overflow-y-auto">
         <h3 className="text-xs font-bold uppercase text-slate-400 mb-3">Client Chats</h3>
         <div className="space-y-2">
@@ -217,23 +271,40 @@ export default function OperatorConsole() {
               <button
                 key={c.id}
                 onClick={() => setSelectedClient(c)}
-                className={`w-full text-left p-3 rounded-xl border ${
-                  selectedClient?.id === c.id ? 'border-blue-600 bg-blue-50' : 'border-slate-200 hover:bg-slate-50'
+                className={`w-full text-left p-3 rounded-xl border transition ${
+                  selectedClient?.id === c.id
+                    ? 'border-blue-600 bg-blue-50'
+                    : c.isUnread
+                    ? 'border-rose-400 bg-rose-50/50'
+                    : 'border-slate-200 hover:bg-slate-50'
                 }`}
               >
-                <p className="text-xs font-bold text-slate-800">{c.name}</p>
-                <p className="text-xs text-slate-500 truncate mt-1">{c.lastMessage}</p>
+                <div className="flex justify-between items-center">
+                  <p className="text-xs font-bold text-slate-800">{c.name}</p>
+                  {c.isUnread && (
+                    <span className="w-2 h-2 rounded-full bg-rose-600 animate-pulse"></span>
+                  )}
+                </div>
+                <p className={`text-xs truncate mt-1 ${c.isUnread ? 'font-bold text-rose-700' : 'text-slate-500'}`}>
+                  {c.lastMessage}
+                </p>
               </button>
             ))
           )}
         </div>
       </div>
 
+      {/* 3. MESSAGE THREAD & REPLY DESK */}
       <div className="flex-1 flex flex-col justify-between p-6">
         {selectedHost && (
-          <div className="border-b pb-3 mb-4">
-            <span className="text-sm font-bold text-slate-700">Replying as: </span>
-            <span className="text-sm font-extrabold text-blue-600">{selectedHost.name}</span>
+          <div className="border-b pb-3 mb-4 flex justify-between items-center">
+            <div>
+              <span className="text-sm font-bold text-slate-700">Replying as: </span>
+              <span className="text-sm font-extrabold text-blue-600">{selectedHost.name}</span>
+            </div>
+            <span className="bg-emerald-50 text-emerald-600 border border-emerald-200 text-xs font-bold px-3 py-1 rounded-full">
+              Operator Online
+            </span>
           </div>
         )}
 
