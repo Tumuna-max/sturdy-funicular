@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { useParams } from 'next/navigation';
 
@@ -18,9 +18,31 @@ export default function ClientChatPage() {
   const [text, setText] = useState('');
   const [user, setUser] = useState(null);
   const [credits, setCredits] = useState(0);
-  const [unlockedMedia, setUnlockedMedia] = useState({}); // Track unlocked msg IDs
+  const [unlockedMedia, setUnlockedMedia] = useState({});
   const [file, setFile] = useState(null);
   const [sending, setSending] = useState(false);
+
+  const messagesEndRef = useRef(null);
+
+  // Sound effect generator for incoming messages
+  const playNotificationSound = () => {
+    try {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5 note
+      osc.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.15); // A5 note
+      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.3);
+    } catch (e) {
+      console.log('Audio playback prevented by browser policy:', e);
+    }
+  };
 
   useEffect(() => {
     async function initChat() {
@@ -30,7 +52,7 @@ export default function ClientChatPage() {
       if (!user) return;
       setUser(user);
 
-      // Fetch user credits
+      // Fetch credits
       const { data: userData } = await supabase.from('users').select('credits').eq('id', user.id).single();
       if (userData) setCredits(userData.credits ?? 50);
 
@@ -38,7 +60,7 @@ export default function ClientChatPage() {
       const { data: host } = await supabase.from('profiles').select('*').eq('id', profileId).maybeSingle();
       if (host) setHostProfile(host);
 
-      // Load existing messages
+      // Load thread
       const { data: msgs } = await supabase
         .from('messages')
         .select('*')
@@ -51,7 +73,46 @@ export default function ClientChatPage() {
     initChat();
   }, [profileId]);
 
-  // Send Message Logic (2 credits text, 10 credits photo, 15 credits video)
+  // Realtime subscription for incoming operator replies
+  useEffect(() => {
+    if (!user || !profileId) return;
+
+    const channel = supabase
+      .channel(`client-chat-${profileId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages'
+        },
+        (payload) => {
+          const newMsg = payload.new;
+          // Check if message belongs to this conversation and was sent by host/operator
+          if (
+            (newMsg.sender_id === profileId && (newMsg.receiver_id === user.id || newMsg.profile_id === profileId)) ||
+            (newMsg.is_operator_reply && newMsg.profile_id === profileId)
+          ) {
+            setMessages((prev) => {
+              if (prev.some((m) => m.id === newMsg.id)) return prev;
+              return [...prev, newMsg];
+            });
+            playNotificationSound();
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, profileId]);
+
+  // Auto scroll to bottom
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
   const handleSend = async (e) => {
     e.preventDefault();
     if ((!text.trim() && !file) || !user || !profileId) return;
@@ -114,7 +175,6 @@ export default function ClientChatPage() {
     setSending(false);
   };
 
-  // Unlock Media Logic (5 credits photo, 20 credits video)
   const handleUnlockMedia = async (msgId, mediaType) => {
     let unlockCost = mediaType === 'video' ? 20 : 5;
 
@@ -197,6 +257,7 @@ export default function ClientChatPage() {
             );
           })
         )}
+        <div ref={messagesEndRef} />
       </div>
 
       <form onSubmit={handleSend} className="space-y-2">
