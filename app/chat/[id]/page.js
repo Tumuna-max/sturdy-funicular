@@ -54,7 +54,7 @@ export default function ClientChatPage() {
     e.preventDefault();
     if ((!text.trim() && !file) || !user || !profileId) return;
 
-    // Determine credit cost (1 credit for text/photo, 5 credits for video)
+    // Determine credit cost ( 2 credit for text, 10 credits for photo, 25 credits for video)
     let isVideo = file && file.type.startsWith('video');
     let isImage = file && file.type.startsWith('image');
     let cost = isVideo ? 5 : 1;
