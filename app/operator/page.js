@@ -122,7 +122,9 @@ export default function OperatorConsole() {
           sender_id: selectedHost.id,
           receiver_id: selectedClient.id,
           profile_id: selectedHost.id,
-          content: replyText
+          content: replyText,
+          is_operator_reply: true,
+          is_read: true
         }
       ])
       .select('*');
