@@ -10,7 +10,7 @@ const supabase = createClient(
 
 export default function AdminDashboard() {
   const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
-  const [adminPin, setAdminPin] = useState('');
+  const [adminPin, setAdminPin] = useState('FrumenceAdmin2026!');
 
   // Form states
   const [workerUsername, setWorkerUsername] = useState('');
