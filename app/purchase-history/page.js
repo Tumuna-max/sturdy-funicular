@@ -5,12 +5,45 @@ import ClientSidebar from '@/components/ClientSidebar';
 
 export default function PurchaseHistoryPage() {
   const [credits, setCredits] = useState(20);
-  const [successMsg, setSuccessMsg] = useState('');
+  const [loadingPackage, setLoadingPackage] = useState(null);
+  const [errorMsg, setErrorMsg] = useState('');
 
-  const handleBuyCredits = (amount, cost) => {
-    setCredits((prev) => prev + amount);
-    setSuccessMsg(`Successfully added ${amount} credits! ($${cost})`);
-    setTimeout(() => setSuccessMsg(''), 4000);
+  // Your exact credit pricing options
+  const packages = [
+    { credits: 20, price: 2.00 },
+    { credits: 55, price: 5.00 },
+    { credits: 110, price: 10.00 },
+    { credits: 265, price: 20.00 },
+  ];
+
+  const handleCheckout = async (pkg) => {
+    setLoadingPackage(pkg.credits);
+    setErrorMsg('');
+
+    try {
+      const res = await fetch('/api/nowpayments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: pkg.price,
+          credits: pkg.credits,
+          userId: '1404449847',
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.invoice_url) {
+        // Redirects directly to the NOWPayments checkout screen
+        window.location.href = data.invoice_url;
+      } else {
+        setErrorMsg(data.error || 'Could not connect to NOWPayments.');
+      }
+    } catch (err) {
+      setErrorMsg('Network error. Please try again.');
+    } finally {
+      setLoadingPackage(null);
+    }
   };
 
   return (
@@ -20,9 +53,9 @@ export default function PurchaseHistoryPage() {
       <main className="flex-1 overflow-y-auto p-8 space-y-6">
         <h1 className="text-2xl font-black text-slate-800">Credits & Purchase History</h1>
 
-        {successMsg && (
-          <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 p-4 rounded-2xl text-xs font-bold animate-in fade-in">
-            {successMsg}
+        {errorMsg && (
+          <div className="bg-rose-50 border border-rose-200 text-rose-700 p-4 rounded-2xl text-xs font-bold">
+            ⚠️ {errorMsg}
           </div>
         )}
 
@@ -33,40 +66,27 @@ export default function PurchaseHistoryPage() {
             <p className="text-xs opacity-90">Use credits to start chats and send direct letters.</p>
           </div>
 
-          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-3 col-span-2">
+          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4 col-span-2">
             <h2 className="font-extrabold text-slate-800 text-base">Select Credit Package</h2>
-            <div className="grid grid-cols-3 gap-3">
-              <button 
-                onClick={() => handleBuyCredits(20, 2.99)}
-                className="border-2 border-blue-600 bg-blue-50 p-4 rounded-2xl text-center hover:bg-blue-100 transition cursor-pointer"
-              >
-                <div className="font-black text-blue-700 text-lg">20 Credits</div>
-                <div className="text-xs font-bold text-slate-500 mt-1">$2.99</div>
-              </button>
-              <button 
-                onClick={() => handleBuyCredits(50, 5.99)}
-                className="border border-slate-200 p-4 rounded-2xl text-center hover:border-blue-600 hover:bg-slate-50 transition cursor-pointer"
-              >
-                <div className="font-black text-slate-800 text-lg">50 Credits</div>
-                <div className="text-xs font-bold text-slate-500 mt-1">$5.99</div>
-              </button>
-              <button 
-                onClick={() => handleBuyCredits(100, 10.99)}
-                className="border border-slate-200 p-4 rounded-2xl text-center hover:border-blue-600 hover:bg-slate-50 transition cursor-pointer"
-              >
-                <div className="font-black text-slate-800 text-lg">100 Credits</div>
-                <div className="text-xs font-bold text-slate-500 mt-1">$10.99</div>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
-          <h2 className="font-extrabold text-slate-800 text-base">Transaction Log</h2>
-          <div className="text-xs text-slate-500 space-y-2">
-            <div className="flex justify-between border-b pb-2 font-medium">
-              <span>Initial Account Grant</span>
-              <span className="text-emerald-600 font-bold">+20 Credits</span>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {packages.map((pkg) => (
+                <div
+                  key={pkg.credits}
+                  className="border border-slate-200 p-4 rounded-2xl text-center flex flex-col justify-between hover:border-blue-600 hover:bg-blue-50/50 transition space-y-3"
+                >
+                  <div>
+                    <div className="font-black text-slate-800 text-base">{pkg.credits} Credits</div>
+                    <div className="text-xs font-bold text-blue-600 mt-1">${pkg.price.toFixed(2)}</div>
+                  </div>
+                  <button
+                    onClick={() => handleCheckout(pkg)}
+                    disabled={loadingPackage === pkg.credits}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs py-2 rounded-xl transition shadow disabled:opacity-50 cursor-pointer"
+                  >
+                    {loadingPackage === pkg.credits ? 'Loading...' : 'Buy Now'}
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
         </div>
