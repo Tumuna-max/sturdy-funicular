@@ -1,5 +1,6 @@
 'use client';
 
+import './globals.css';
 import { usePathname } from 'next/navigation';
 
 export default function RootLayout({ children }) {
@@ -8,18 +9,16 @@ export default function RootLayout({ children }) {
 
   return (
     <html lang="en">
-      <body className="bg-slate-50">
-        <div className="flex min-h-screen">
-          {/* Only render default client sidebar if NOT on admin */}
-          {!isAdminRoute && (
-            <aside className="w-64 border-r bg-white p-4">
-              {/* Your default client nav items (All chats, Active Chats, etc.) */}
-            </aside>
-          )}
-
-          {/* Main Page Content */}
-          <main className="flex-1">{children}</main>
-        </div>
+      <body className="bg-slate-50 antialiased">
+        {isAdminRoute ? (
+          // Admin gets full screen without the client sidebar
+          children
+        ) : (
+          // Main Client App Layout
+          <div className="flex min-h-screen">
+            <main className="flex-1">{children}</main>
+          </div>
+        )}
       </body>
     </html>
   );
