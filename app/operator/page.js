@@ -82,7 +82,6 @@ export default function OperatorConsole() {
 
     fetchHostsAndUnreads();
 
-    // Poll or setup interval to keep unread badges updated globally in real-time
     const interval = setInterval(fetchHostsAndUnreads, 5000);
     return () => clearInterval(interval);
   }, [workerUser]);
@@ -139,11 +138,9 @@ export default function OperatorConsole() {
         (payload) => {
           const newMsg = payload.new;
 
-          // If incoming message is from a client (not an operator reply)
           if (!newMsg.is_operator_reply) {
             playOperatorAlertSound();
 
-            // Refresh host unreads count dynamically
             setHosts((prevHosts) =>
               prevHosts.map((h) => {
                 if (h.id === newMsg.receiver_id || h.id === newMsg.profile_id) {
@@ -153,7 +150,6 @@ export default function OperatorConsole() {
               })
             );
 
-            // Append to current open thread if relevant
             if (
               selectedClient &&
               selectedHost &&
@@ -197,7 +193,6 @@ export default function OperatorConsole() {
           .eq('sender_id', selectedClient.id)
           .or(`receiver_id.eq.${selectedHost.id},profile_id.eq.${selectedHost.id}`);
 
-        // Clear unread count for current host locally
         setHosts((prevHosts) =>
           prevHosts.map((h) => {
             if (h.id === selectedHost.id) {
@@ -448,4 +443,12 @@ export default function OperatorConsole() {
                 className="flex-1 border rounded-xl p-3 text-sm bg-white"
               />
               <button type="submit" disabled={sending} className="bg-blue-600 text-white font-bold px-6 py-3 rounded-xl">
-                {sending
+                {sending ? 'Sending...' : 'Send Reply'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
