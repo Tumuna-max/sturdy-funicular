@@ -1,103 +1,77 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
-import { useParams } from 'next/navigation';
+import ClientSidebar from '@/components/ClientSidebar';
+import BackButton from '@/components/BackButton';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-);
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
-export default function ClientChatPage() {
+export default function ChatRoomPage() {
   const params = useParams();
-  const profileId = params?.id;
+  const router = useRouter();
+  const profileId = params.id;
 
-  const [hostProfile, setHostProfile] = useState(null);
+  const [profile, setProfile] = useState(null);
   const [messages, setMessages] = useState([]);
-  const [text, setText] = useState('');
-  const [user, setUser] = useState(null);
-  const [credits, setCredits] = useState(0);
-  const [unlockedMedia, setUnlockedMedia] = useState({});
-  const [file, setFile] = useState(null);
-  const [sending, setSending] = useState(false);
-
-  const messagesEndRef = useRef(null);
-
-  // Sound effect generator for incoming messages
-  const playNotificationSound = () => {
-    try {
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5 note
-      osc.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.15); // A5 note
-      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.start();
-      osc.stop(audioCtx.currentTime + 0.3);
-    } catch (e) {
-      console.log('Audio playback prevented by browser policy:', e);
-    }
-  };
+  const [inputText, setInputText] = useState('');
+  const [loading, setLoading] = useState(true);
+  const clientId = '1404449847';
 
   useEffect(() => {
-    async function initChat() {
-      if (!profileId) return;
+    async function loadChatData() {
+      if (!supabase || !profileId) return;
 
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      setUser(user);
+      // Fetch profile info
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', profileId)
+        .single();
 
-      // Fetch credits
-      const { data: userData } = await supabase.from('users').select('credits').eq('id', user.id).single();
-      if (userData) setCredits(userData.credits ?? 50);
+      if (profileData) {
+        setProfile({
+          ...profileData,
+          resolvedImg: profileData.image_url || profileData.avatar_url || profileData.image || profileData.photo_url || ''
+        });
+      }
 
-      // Fetch host profile
-      const { data: host } = await supabase.from('profiles').select('*').eq('id', profileId).maybeSingle();
-      if (host) setHostProfile(host);
-
-      // Load thread
-      const { data: msgs } = await supabase
+      // Fetch message history between client and this profile
+      const { data: msgData } = await supabase
         .from('messages')
         .select('*')
-        .or(`and(sender_id.eq.${user.id},receiver_id.eq.${profileId}),and(sender_id.eq.${profileId},receiver_id.eq.${user.id}),and(sender_id.eq.${user.id},profile_id.eq.${profileId})`)
+        .or(`and(sender_id.eq.${clientId},or(receiver_id.eq.${profileId},profile_id.eq.${profileId})),and(sender_id.eq.${profileId},or(receiver_id.eq.${clientId},profile_id.eq.${clientId}))`)
         .order('created_at', { ascending: true });
 
-      if (msgs) setMessages(msgs);
+      if (msgData) {
+        setMessages(msgData);
+      }
+      setLoading(false);
     }
 
-    initChat();
+    loadChatData();
   }, [profileId]);
 
-  // Realtime subscription for incoming operator replies
+  // Realtime listener for incoming replies from operator/host
   useEffect(() => {
-    if (!user || !profileId) return;
+    if (!supabase || !profileId) return;
 
     const channel = supabase
-      .channel(`client-chat-${profileId}`)
+      .channel(`chat-${profileId}`)
       .on(
         'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages'
-        },
+        { event: 'INSERT', schema: 'public', table: 'messages' },
         (payload) => {
           const newMsg = payload.new;
-          // Check if message belongs to this conversation and was sent by host/operator
           if (
-            (newMsg.sender_id === profileId && (newMsg.receiver_id === user.id || newMsg.profile_id === profileId)) ||
-            (newMsg.is_operator_reply && newMsg.profile_id === profileId)
+            newMsg.sender_id === profileId || 
+            newMsg.receiver_id === clientId || 
+            newMsg.profile_id === profileId
           ) {
-            setMessages((prev) => {
-              if (prev.some((m) => m.id === newMsg.id)) return prev;
-              return [...prev, newMsg];
-            });
-            playNotificationSound();
+            setMessages((prev) => [...prev, newMsg]);
           }
         }
       )
@@ -106,194 +80,98 @@ export default function ClientChatPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user, profileId]);
+  }, [profileId]);
 
-  // Auto scroll to bottom
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  const handleSend = async (e) => {
+  const handleSendMessage = async (e) => {
     e.preventDefault();
-    if ((!text.trim() && !file) || !user || !profileId) return;
+    if (!inputText.trim() || !supabase) return;
 
-    let isVideo = file && file.type.startsWith('video');
-    let isImage = file && file.type.startsWith('image');
-    let cost = isVideo ? 15 : (isImage ? 10 : 2);
+    const content = inputText;
+    setInputText('');
 
-    if (credits < cost) {
-      alert(`Insufficient credits! You need ${cost} credits to send this ${isVideo ? 'Video' : isImage ? 'Photo' : 'Text'}.`);
-      return;
-    }
-
-    setSending(true);
-    let uploadedMediaUrl = null;
-    let mediaType = isVideo ? 'video' : isImage ? 'image' : null;
-
-    if (file) {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${user.id}_${Date.now()}.${fileExt}`;
-      const { error: uploadErr } = await supabase.storage
-        .from('chat-media')
-        .upload(fileName, file);
-
-      if (uploadErr) {
-        alert('File upload failed: ' + uploadErr.message);
-        setSending(false);
-        return;
-      }
-
-      const { data: publicUrlData } = supabase.storage.from('chat-media').getPublicUrl(fileName);
-      uploadedMediaUrl = publicUrlData.publicUrl;
-    }
-
-    const { data: newMsg, error } = await supabase
+    const { data, error } = await supabase
       .from('messages')
       .insert([
         {
-          sender_id: user.id,
+          sender_id: clientId,
           receiver_id: profileId,
           profile_id: profileId,
-          content: text || (mediaType === 'video' ? '📹 Sent a video' : '📷 Sent a photo'),
-          media_url: uploadedMediaUrl,
-          media_type: mediaType
+          content: content,
+          is_read: false,
+          is_operator_reply: false
         }
       ])
       .select('*');
 
-    if (!error && newMsg && newMsg.length > 0) {
-      const newCreditBalance = credits - cost;
-      await supabase.from('users').update({ credits: newCreditBalance }).eq('id', user.id);
-      setCredits(newCreditBalance);
-
-      setMessages((prev) => [...prev, newMsg[0]]);
-      setText('');
-      setFile(null);
-    } else {
-      alert('Send failed: ' + (error?.message || 'Database error'));
+    if (!error && data) {
+      setMessages((prev) => [...prev, data[0]]);
     }
-    setSending(false);
-  };
-
-  const handleUnlockMedia = async (msgId, mediaType) => {
-    let unlockCost = mediaType === 'video' ? 20 : 5;
-
-    if (credits < unlockCost) {
-      alert(`Insufficient credits! You need ${unlockCost} credits to unlock this ${mediaType}.`);
-      return;
-    }
-
-    const newCreditBalance = credits - unlockCost;
-    await supabase.from('users').update({ credits: newCreditBalance }).eq('id', user.id);
-    setCredits(newCreditBalance);
-
-    setUnlockedMedia((prev) => ({ ...prev, [msgId]: true }));
   };
 
   return (
-    <div className="flex flex-col h-screen max-w-4xl mx-auto bg-white p-6">
-      {hostProfile && (
-        <div className="flex items-center justify-between border-b pb-4 mb-4">
+    <div className="flex h-screen bg-slate-50 text-slate-800 overflow-hidden">
+      <ClientSidebar credits={20} userName="Tumuna Mwabili" />
+
+      <main className="flex-1 flex flex-col justify-between h-screen p-6 overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-slate-200 pb-4 bg-white p-4 rounded-2xl shadow-sm">
           <div className="flex items-center gap-3">
-            <img 
-              src={hostProfile.image_url || hostProfile.avatar_url || hostProfile.image || 'https://via.placeholder.com/150'} 
-              alt={hostProfile.name} 
-              className="w-12 h-12 rounded-full object-cover shrink-0 border" 
-            />
-            <div>
-              <h2 className="font-bold text-lg text-slate-800">{hostProfile.name}, {hostProfile.age}</h2>
-              <p className="text-xs text-emerald-600 font-semibold">Online now</p>
-            </div>
-          </div>
-
-          <div className="bg-blue-50 text-blue-700 font-bold text-xs px-4 py-2 rounded-xl border border-blue-200">
-            Credits Remaining: {credits}
-          </div>
-        </div>
-      )}
-
-      <div className="flex-1 overflow-y-auto space-y-3 mb-4 p-4 bg-slate-50 rounded-xl border">
-        {messages.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-slate-400 text-sm italic">
-            Start a conversation with {hostProfile?.name || 'this host'}
-          </div>
-        ) : (
-          messages.map((m) => {
-            const isMe = m.sender_id === user?.id;
-            const isUnlocked = isMe || unlockedMedia[m.id];
-
-            return (
-              <div key={m.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                <div className={`p-3 rounded-2xl max-w-md text-sm ${isMe ? 'bg-blue-600 text-white' : 'bg-white border text-slate-800 shadow-sm'}`}>
-                  {m.media_url && (
-                    <div className="relative mb-2 rounded-xl overflow-hidden">
-                      {isUnlocked ? (
-                        m.media_type === 'image' ? (
-                          <img src={m.media_url} alt="Media" className="max-h-60 w-full object-cover rounded-xl" />
-                        ) : (
-                          <video src={m.media_url} controls className="max-h-60 w-full object-cover rounded-xl" />
-                        )
-                      ) : (
-                        <div className="relative border bg-slate-200 h-48 w-full flex flex-col items-center justify-center rounded-xl overflow-hidden p-4">
-                          <div className="absolute inset-0 bg-slate-800/40 backdrop-blur-md"></div>
-                          <div className="relative z-10 text-center text-white space-y-2">
-                            <p className="text-xs font-bold uppercase tracking-wider">
-                              🔒 Locked {m.media_type === 'video' ? 'Video' : 'Photo'}
-                            </p>
-                            <button
-                              onClick={() => handleUnlockMedia(m.id, m.media_type)}
-                              className="bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold text-xs px-4 py-2 rounded-xl shadow transition"
-                            >
-                              Unlock for {m.media_type === 'video' ? '20' : '5'} Credits
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {m.content && <p>{m.content}</p>}
+            <BackButton label="Back" />
+            {profile && (
+              <div className="flex items-center gap-3">
+                <img src={profile.resolvedImg} alt={profile.name} className="w-10 h-10 rounded-full object-cover border" />
+                <div>
+                  <h2 className="font-extrabold text-sm">{profile.name}, {profile.age}</h2>
+                  <p className="text-[10px] text-emerald-600 font-bold flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Online now
+                  </p>
                 </div>
               </div>
-            );
-          })
-        )}
-        <div ref={messagesEndRef} />
-      </div>
-
-      <form onSubmit={handleSend} className="space-y-2">
-        {file && (
-          <div className="flex items-center justify-between bg-slate-100 p-2 rounded-xl text-xs font-semibold text-slate-700">
-            <span>📎 Attached: {file.name}</span>
-            <button type="button" onClick={() => setFile(null)} className="text-rose-600 font-bold hover:underline">Remove</button>
+            )}
           </div>
-        )}
+        </div>
 
-        <div className="flex gap-2">
-          <label className="cursor-pointer bg-slate-100 hover:bg-slate-200 border border-slate-300 p-3 rounded-xl flex items-center justify-center text-slate-600 font-bold text-sm">
-            📷 / 📹
-            <input 
-              type="file" 
-              accept="image/*,video/*" 
-              onChange={(e) => setFile(e.target.files[0])} 
-              className="hidden" 
-            />
-          </label>
+        {/* Message Thread */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-3 my-4">
+          {loading ? (
+            <div className="text-center text-slate-400 text-xs py-10">Loading conversation...</div>
+          ) : messages.length === 0 ? (
+            <div className="text-center text-slate-400 text-xs py-10 italic">
+              No messages yet. Send a greeting to start chatting!
+            </div>
+          ) : (
+            messages.map((m, idx) => {
+              const isMe = m.sender_id === clientId;
+              return (
+                <div key={idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-md p-3.5 rounded-2xl text-xs font-semibold ${
+                    isMe ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white border border-slate-200 text-slate-800 rounded-bl-none shadow-sm'
+                  }`}>
+                    <p>{m.content}</p>
+                    <span className={`block text-[9px] mt-1 text-right ${isMe ? 'text-blue-100' : 'text-slate-400'}`}>
+                      {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Send Input Bar */}
+        <form onSubmit={handleSendMessage} className="flex gap-2 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
           <input
             type="text"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="Text: 2cr | Send Photo: 10cr | Send Video: 15cr"
-            className="flex-1 border border-slate-300 rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            placeholder="Type your message..."
+            className="flex-1 text-xs outline-none px-3 bg-transparent text-slate-700"
           />
-          <button
-            type="submit"
-            disabled={sending}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-3 rounded-xl transition shadow"
-          >
-            {sending ? 'Sending...' : 'Send'}
+          <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-6 py-2.5 rounded-xl transition cursor-pointer">
+            Send
           </button>
-        </div>
-      </form>
+        </form>
+      </main>
     </div>
   );
 }
