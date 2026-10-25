@@ -1,14 +1,46 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
 export default function ClientSidebar({ credits = 20, userName = "Tumuna Mwabili" }) {
   const pathname = usePathname();
+  const [activeChatsCount, setActiveChatsCount] = useState(0);
+  const clientId = '1404449847';
+
+  useEffect(() => {
+    async function fetchActiveChatsCount() {
+      if (!supabase) return;
+      
+      // Fetch messages involving this client to count unique active conversations
+      const { data, error } = await supabase
+        .from('messages')
+        .select('sender_id, receiver_id, profile_id')
+        .or(`sender_id.eq.${clientId},receiver_id.eq.${clientId}`);
+
+      if (!error && data) {
+        const uniqueLadyIds = new Set();
+        data.forEach((m) => {
+          if (m.sender_id !== clientId) uniqueLadyIds.add(m.sender_id);
+          if (m.receiver_id !== clientId && m.receiver_id) uniqueLadyIds.add(m.receiver_id);
+          if (m.profile_id && m.profile_id !== clientId) uniqueLadyIds.add(m.profile_id);
+        });
+        setActiveChatsCount(uniqueLadyIds.size);
+      }
+    }
+
+    fetchActiveChatsCount();
+  }, []);
 
   const navItems = [
-    { label: 'All chats', href: '/', icon: '💬' },
-    { label: 'Unread', href: '/unread', icon: '🏳️', badge: 'New' },
+    { label: 'All chats', href: '/', icon: '💬', badge: activeChatsCount > 0 ? activeChatsCount : null },
+    { label: 'Unread', href: '/unread', icon: '🏳️' },
     { label: 'Favorites', href: '/favorites', icon: '⭐' },
     { label: 'Your likes', href: '/your-likes', icon: '♡' },
     { label: 'Letters', href: '/letters', icon: '✉️' },
@@ -56,7 +88,7 @@ export default function ClientSidebar({ credits = 20, userName = "Tumuna Mwabili
         {/* Add Credits Button */}
         <Link
           href="/purchase-history"
-          className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs py-3 rounded-xl shadow-md transition"
+          className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs py-3 rounded-xl shadow-md transition cursor-pointer"
         >
           <span>ⓒ</span> Add credits
         </Link>
@@ -69,7 +101,7 @@ export default function ClientSidebar({ credits = 20, userName = "Tumuna Mwabili
               <Link
                 key={item.label}
                 href={item.href}
-                className={`flex items-center justify-between px-3 py-2.5 rounded-xl transition ${
+                className={`flex items-center justify-between px-3 py-2.5 rounded-xl transition cursor-pointer ${
                   isActive
                     ? 'bg-blue-600 text-white font-black shadow-sm'
                     : 'hover:bg-slate-100 text-slate-600'
@@ -79,8 +111,10 @@ export default function ClientSidebar({ credits = 20, userName = "Tumuna Mwabili
                   <span className="text-base">{item.icon}</span>
                   <span>{item.label}</span>
                 </div>
-                {item.badge && (
-                  <span className="bg-blue-100 text-blue-600 text-[10px] font-black px-1.5 py-0.5 rounded">
+                {item.badge !== null && item.badge !== undefined && (
+                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                    isActive ? 'bg-white text-blue-600' : 'bg-blue-100 text-blue-600'
+                  }`}>
                     {item.badge}
                   </span>
                 )}
