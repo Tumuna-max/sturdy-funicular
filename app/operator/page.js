@@ -22,16 +22,16 @@ export default function OperatorConsole() {
   const [replyText, setReplyText] = useState('');
   const [file, setFile] = useState(null);
   const [sending, setSending] = useState(false);
+  const [clientLiked, setClientLiked] = useState(false);
 
-  // Sound generator for worker incoming message alerts
   const playOperatorAlertSound = () => {
     try {
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
       osc.type = 'triangle';
-      osc.frequency.setValueAtTime(440, audioCtx.currentTime); // A4
-      osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.1); // E5
+      osc.frequency.setValueAtTime(440, audioCtx.currentTime);
+      osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.1);
       gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.35);
       osc.connect(gain);
@@ -39,7 +39,7 @@ export default function OperatorConsole() {
       osc.start();
       osc.stop(audioCtx.currentTime + 0.35);
     } catch (e) {
-      console.log('Audio playback prevented by browser policy:', e);
+      console.log('Audio error:', e);
     }
   };
 
@@ -51,27 +51,28 @@ export default function OperatorConsole() {
     checkAuth();
   }, []);
 
-  // Fetch Hosts & Unread Counts Globally across all profiles instantly
+  // Globally Fetch All Hosts and Unread Counts across the entire system
   useEffect(() => {
     if (!workerUser) return;
 
-    async function fetchHostsAndUnreads() {
+    async function fetchGlobalUnreads() {
       const { data: profilesData } = await supabase.from('profiles').select('*');
       const { data: unreadMsgs } = await supabase
         .from('messages')
-        .select('receiver_id, profile_id')
+        .select('*')
         .eq('is_read', false)
         .eq('is_operator_reply', false);
 
       if (profilesData && profilesData.length > 0) {
         const formattedHosts = profilesData.map((h) => {
-          const unreadCount = unreadMsgs
-            ? unreadMsgs.filter((m) => m.receiver_id === h.id || m.profile_id === h.id).length
-            : 0;
+          const hostUnreads = unreadMsgs
+            ? unreadMsgs.filter((m) => m.receiver_id === h.id || m.profile_id === h.id)
+            : [];
           return {
             ...h,
             resolvedImg: h.image_url || h.avatar_url || h.image || h.photo_url || '',
-            unreadCount: unreadCount
+            unreadCount: hostUnreads.length,
+            unreads: hostUnreads
           };
         });
 
@@ -80,9 +81,8 @@ export default function OperatorConsole() {
       }
     }
 
-    fetchHostsAndUnreads();
-
-    const interval = setInterval(fetchHostsAndUnreads, 5000);
+    fetchGlobalUnreads();
+    const interval = setInterval(fetchGlobalUnreads, 4000);
     return () => clearInterval(interval);
   }, [workerUser]);
 
@@ -126,18 +126,50 @@ export default function OperatorConsole() {
     fetchHostChats();
   }, [workerUser, selectedHost]);
 
-  // Global Realtime listener for incoming messages across all client chats
+  // Check if client is liked by this host
+  useEffect(() => {
+    if (!selectedClient || !selectedHost) return;
+
+    async function checkClientLiked() {
+      const { data } = await supabase
+        .from('likes')
+        .select('*')
+        .eq('client_id', selectedClient.id)
+        .eq('profile_id', selectedHost.id);
+
+      setClientLiked(data && data.length > 0);
+    }
+    checkClientLiked();
+  }, [selectedClient, selectedHost]);
+
+  const toggleLikeClient = async () => {
+    if (!selectedClient || !selectedHost) return;
+
+    if (clientLiked) {
+      await supabase
+        .from('likes')
+        .delete()
+        .match({ client_id: selectedClient.id, profile_id: selectedHost.id });
+      setClientLiked(false);
+    } else {
+      await supabase
+        .from('likes')
+        .insert([{ client_id: selectedClient.id, profile_id: selectedHost.id }]);
+      setClientLiked(true);
+    }
+  };
+
+  // Global Realtime listener
   useEffect(() => {
     if (!workerUser) return;
 
     const channel = supabase
-      .channel('operator-realtime-global')
+      .channel('operator-global-realtime')
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages' },
         (payload) => {
           const newMsg = payload.new;
-
           if (!newMsg.is_operator_reply) {
             playOperatorAlertSound();
 
@@ -168,11 +200,11 @@ export default function OperatorConsole() {
     };
   }, [workerUser, selectedHost, selectedClient]);
 
-  // Load Thread & Auto Mark Messages as Read
+  // Load Thread & Mark Read
   useEffect(() => {
     if (!selectedClient || !selectedHost) return;
 
-    async function loadThreadAndMarkRead() {
+    async function loadThread() {
       const { data } = await supabase
         .from('messages')
         .select('*')
@@ -192,19 +224,10 @@ export default function OperatorConsole() {
           .update({ is_read: true })
           .eq('sender_id', selectedClient.id)
           .or(`receiver_id.eq.${selectedHost.id},profile_id.eq.${selectedHost.id}`);
-
-        setHosts((prevHosts) =>
-          prevHosts.map((h) => {
-            if (h.id === selectedHost.id) {
-              return { ...h, unreadCount: 0 };
-            }
-            return h;
-          })
-        );
       }
     }
 
-    loadThreadAndMarkRead();
+    loadThread();
   }, [selectedClient, selectedHost]);
 
   const handleSendReply = async (e) => {
@@ -220,12 +243,10 @@ export default function OperatorConsole() {
     if (file) {
       const fileExt = file.name.split('.').pop();
       const fileName = `operator_${selectedHost.id}_${Date.now()}.${fileExt}`;
-      const { error: uploadErr } = await supabase.storage
-        .from('chat-media')
-        .upload(fileName, file);
+      const { error: uploadErr } = await supabase.storage.from('chat-media').upload(fileName, file);
 
       if (uploadErr) {
-        alert('File upload failed: ' + uploadErr.message);
+        alert('Upload failed: ' + uploadErr.message);
         setSending(false);
         return;
       }
@@ -241,7 +262,7 @@ export default function OperatorConsole() {
           sender_id: selectedHost.id,
           receiver_id: selectedClient.id,
           profile_id: selectedHost.id,
-          content: replyText || (mediaType === 'video' ? '📹 Sent a video' : '📷 Sent a photo'),
+          content: replyText || (mediaType === 'video' ? '📹 Video' : '📷 Photo'),
           media_url: uploadedMediaUrl,
           media_type: mediaType,
           is_operator_reply: true,
@@ -254,8 +275,6 @@ export default function OperatorConsole() {
       setMessages((prev) => [...prev, newMsg[0]]);
       setReplyText('');
       setFile(null);
-    } else {
-      alert('Error sending reply: ' + (error?.message || 'Database error'));
     }
     setSending(false);
   };
@@ -317,7 +336,7 @@ export default function OperatorConsole() {
                 setSelectedHost(host);
                 setSelectedClient(null);
               }}
-              className={`w-full flex items-center justify-between p-3 rounded-xl transition ${
+              className={`w-full flex items-center justify-between p-3 rounded-xl transition cursor-pointer ${
                 selectedHost?.id === host.id ? 'bg-blue-600 text-white shadow' : 'bg-slate-50 hover:bg-slate-100'
               }`}
             >
@@ -343,13 +362,13 @@ export default function OperatorConsole() {
         <h3 className="text-xs font-bold uppercase text-slate-400 mb-3">Client Chats</h3>
         <div className="space-y-2">
           {clientChats.length === 0 ? (
-            <p className="text-xs text-slate-400 italic">No active client chats for this host profile.</p>
+            <p className="text-xs text-slate-400 italic">No active client chats for this host.</p>
           ) : (
             clientChats.map((c) => (
               <button
                 key={c.id}
                 onClick={() => setSelectedClient(c)}
-                className={`w-full text-left p-3 rounded-xl border transition ${
+                className={`w-full text-left p-3 rounded-xl border transition cursor-pointer ${
                   selectedClient?.id === c.id
                     ? 'border-blue-600 bg-blue-50'
                     : c.isUnread
@@ -359,9 +378,7 @@ export default function OperatorConsole() {
               >
                 <div className="flex justify-between items-center">
                   <p className="text-xs font-bold text-slate-800">{c.name}</p>
-                  {c.isUnread && (
-                    <span className="w-2 h-2 rounded-full bg-rose-600 animate-pulse"></span>
-                  )}
+                  {c.isUnread && <span className="w-2 h-2 rounded-full bg-rose-600 animate-pulse"></span>}
                 </div>
                 <p className={`text-xs truncate mt-1 ${c.isUnread ? 'font-bold text-rose-700' : 'text-slate-500'}`}>
                   {c.lastMessage}
@@ -372,7 +389,7 @@ export default function OperatorConsole() {
         </div>
       </div>
 
-      {/* 3. MESSAGE THREAD & REPLY DESK */}
+      {/* 3. MESSAGE THREAD & LIKE CLIENT BUTTON */}
       <div className="flex-1 flex flex-col justify-between p-6">
         {selectedHost && (
           <div className="border-b pb-3 mb-4 flex justify-between items-center">
@@ -380,6 +397,18 @@ export default function OperatorConsole() {
               <span className="text-sm font-bold text-slate-700">Replying as: </span>
               <span className="text-sm font-extrabold text-blue-600">{selectedHost.name}</span>
             </div>
+
+            {selectedClient && (
+              <button
+                onClick={toggleLikeClient}
+                className={`font-bold text-xs px-4 py-2 rounded-xl transition shadow cursor-pointer ${
+                  clientLiked ? 'bg-emerald-600 text-white' : 'bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100'
+                }`}
+              >
+                {clientLiked ? '💚 Client Liked' : '💙 Like Client'}
+              </button>
+            )}
+
             <span className="bg-emerald-50 text-emerald-600 border border-emerald-200 text-xs font-bold px-3 py-1 rounded-full">
               Operator Online
             </span>
@@ -393,7 +422,7 @@ export default function OperatorConsole() {
             </div>
           ) : messages.length === 0 ? (
             <div className="h-full flex items-center justify-center text-slate-400 text-sm italic">
-              No message history found with this client.
+              No message history found.
             </div>
           ) : (
             messages.map((m, idx) => (
@@ -404,7 +433,7 @@ export default function OperatorConsole() {
                   }`}
                 >
                   {m.media_url && m.media_type === 'image' && (
-                    <img src={m.media_url} alt="Client upload" className="rounded-xl mb-2 max-h-60 w-full object-cover" />
+                    <img src={m.media_url} alt="Media" className="rounded-xl mb-2 max-h-60 w-full object-cover" />
                   )}
                   {m.media_url && m.media_type === 'video' && (
                     <video src={m.media_url} controls className="rounded-xl mb-2 max-h-60 w-full object-cover" />
@@ -428,12 +457,7 @@ export default function OperatorConsole() {
             <div className="flex gap-2">
               <label className="cursor-pointer bg-slate-100 hover:bg-slate-200 border border-slate-300 p-3 rounded-xl flex items-center justify-center text-slate-600 font-bold text-sm">
                 📷 / 📹
-                <input 
-                  type="file" 
-                  accept="image/*,video/*" 
-                  onChange={(e) => setFile(e.target.files[0])} 
-                  className="hidden" 
-                />
+                <input type="file" accept="image/*,video/*" onChange={(e) => setFile(e.target.files[0])} className="hidden" />
               </label>
               <input
                 type="text"
@@ -442,7 +466,7 @@ export default function OperatorConsole() {
                 placeholder="Type reply as host..."
                 className="flex-1 border rounded-xl p-3 text-sm bg-white"
               />
-              <button type="submit" disabled={sending} className="bg-blue-600 text-white font-bold px-6 py-3 rounded-xl">
+              <button type="submit" disabled={sending} className="bg-blue-600 text-white font-bold px-6 py-3 rounded-xl cursor-pointer">
                 {sending ? 'Sending...' : 'Send Reply'}
               </button>
             </div>
