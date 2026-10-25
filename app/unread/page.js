@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import ClientSidebar from '@/components/ClientSidebar';
 
@@ -9,9 +10,9 @@ const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
 export default function UnreadPage() {
+  const router = useRouter();
   const [unreadMessages, setUnreadMessages] = useState([]);
   const [loading, setLoading] = useState(true);
-  const clientId = '1404449847';
 
   useEffect(() => {
     async function fetchUnread() {
@@ -33,6 +34,19 @@ export default function UnreadPage() {
     fetchUnread();
   }, []);
 
+  const handleOpenChat = async (msg) => {
+    const targetProfileId = msg.profile_id || msg.sender_id;
+    if (targetProfileId) {
+      // Mark message as read when clicked
+      await supabase
+        .from('messages')
+        .update({ is_read: true })
+        .eq('id', msg.id);
+
+      router.push(`/chat/${targetProfileId}`);
+    }
+  };
+
   return (
     <div className="flex h-screen bg-slate-50 text-slate-800 overflow-hidden">
       <ClientSidebar credits={20} userName="Tumuna Mwabili" />
@@ -53,10 +67,14 @@ export default function UnreadPage() {
         ) : (
           <div className="space-y-3">
             {unreadMessages.map((msg) => (
-              <div key={msg.id} className="bg-white border border-rose-200 bg-rose-50/30 p-4 rounded-2xl shadow-sm flex justify-between items-center">
+              <div
+                key={msg.id}
+                onClick={() => handleOpenChat(msg)}
+                className="bg-white border border-rose-200 bg-rose-50/30 p-4 rounded-2xl shadow-sm flex justify-between items-center cursor-pointer hover:bg-rose-50 transition"
+              >
                 <div>
                   <p className="text-xs font-bold text-slate-800">{msg.content || 'New attachment'}</p>
-                  <p className="text-[10px] text-slate-400 mt-1">{new Date(msg.created_at).toLocaleString()}</p>
+                  <p className="text-[10px] text-slate-400 mt-1">{new Date(msg.created_at).toLocaleString()} • Click to open chat</p>
                 </div>
                 <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-pulse"></span>
               </div>
