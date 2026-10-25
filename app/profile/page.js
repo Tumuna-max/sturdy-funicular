@@ -20,6 +20,7 @@ export default function MyProfilePage() {
       <ClientSidebar credits={credits} userName={name} />
 
       <main className="flex-1 p-8 space-y-6 overflow-y-auto">
+       <import BackButton from '@/components/BackButton';/>
         <div className="flex items-center justify-center gap-3 bg-white p-2 rounded-2xl border border-slate-200 max-w-lg mx-auto shadow-sm">
           <button
             onClick={() => setActiveTab('profile')}
