@@ -18,7 +18,6 @@ export default function ClientSidebar({ credits = 20, userName = "Tumuna Mwabili
     async function fetchActiveChatsCount() {
       if (!supabase) return;
       
-      // Fetch messages involving this client to count unique active conversations
       const { data, error } = await supabase
         .from('messages')
         .select('sender_id, receiver_id, profile_id')
@@ -39,7 +38,8 @@ export default function ClientSidebar({ credits = 20, userName = "Tumuna Mwabili
   }, []);
 
   const navItems = [
-    { label: 'All chats', href: '/', icon: '💬', badge: activeChatsCount > 0 ? activeChatsCount : null },
+    { label: 'Browse ladies', href: '/', icon: '🌸' },
+    { label: 'All chats', href: '/chats', icon: '💬', badge: activeChatsCount > 0 ? activeChatsCount : null },
     { label: 'Unread', href: '/unread', icon: '🏳️' },
     { label: 'Favorites', href: '/favorites', icon: '⭐' },
     { label: 'Your likes', href: '/your-likes', icon: '♡' },
