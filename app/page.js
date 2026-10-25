@@ -60,37 +60,6 @@ export default function HomePage() {
     fetchProfilesAndLikes();
   }, []);
 
-  const handleStartChat = async (lady) => {
-    if (!supabase) return;
-
-    // Ensure a conversation record / initial message exists so it shows up in All Chats (/chats)
-    const { data: existing } = await supabase
-      .from('messages')
-      .select('id')
-      .or(`and(sender_id.eq.${clientId},profile_id.eq.${lady.id}),and(sender_id.eq.${lady.id},profile_id.eq.${clientId})`)
-      .limit(1);
-
-    if (!existing || existing.length === 0) {
-      await supabase.from('messages').insert([
-        {
-          sender_id: clientId,
-          receiver_id: lady.id,
-          profile_id: lady.id,
-          content: 'Hi! I saw your profile and wanted to chat.',
-          is_read: false,
-          is_operator_reply: false
-        }
-      ]);
-    }
-
-    // Redirect straight to All Chats page as requested
-    router.push('/chats');
-  };
-
-  const handleWriteLetter = (lady) => {
-    router.push(`/letters?to=${lady.id}`);
-  };
-
   const toggleLike = async (profileId, e) => {
     e.stopPropagation();
     if (!supabase) return;
@@ -145,7 +114,7 @@ export default function HomePage() {
                       alt={lady.name}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                     />
-                    <div className="absolute top-3 left-3 bg-slate-900/60 backdrop-blur-md text-white text-[10px] font-bold px-2.5 py-1 rounded-full border border-white/25 shadow-sm flex items-center gap-1.5">
+                    <div className="absolute top-3 left-3 bg-slate-900/60 backdrop-blur-md text-white text-[10px] font-bold px-2.5 py-1 rounded-full border border-white/20 shadow-sm flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                       I'm online now
                     </div>
@@ -158,13 +127,13 @@ export default function HomePage() {
 
                   <div className="grid grid-cols-3 gap-1.5">
                     <button 
-                      onClick={() => handleStartChat(lady)}
+                      onClick={() => router.push(`/chat/${lady.id}`)}
                       className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] py-2 rounded-xl shadow transition flex items-center justify-center gap-1 cursor-pointer"
                     >
                       💬 Chat
                     </button>
                     <button 
-                      onClick={() => handleWriteLetter(lady)}
+                      onClick={() => router.push(`/letters?to=${lady.id}`)}
                       className="border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-[11px] py-2 rounded-xl transition flex items-center justify-center gap-1 cursor-pointer"
                     >
                       ✉️ Letter
