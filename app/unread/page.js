@@ -22,7 +22,6 @@ export default function UnreadPage() {
         setLoading(false);
         return;
       }
-      // Fetch only unread messages where sender is NOT the client
       const { data, error } = await supabase
         .from('messages')
         .select('*')
