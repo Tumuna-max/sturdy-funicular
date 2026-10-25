@@ -1,6 +1,13 @@
 'use client';
 
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+
 export default function ProfileDetailModal({ profile, onClose }) {
+  const router = useRouter();
+  const [isLiked, setIsLiked] = useState(false);
+  const [notification, setNotification] = useState('');
+
   if (!profile) return null;
 
   const samplePhotos = [
@@ -9,30 +16,66 @@ export default function ProfileDetailModal({ profile, onClose }) {
     profile.resolvedImg || 'https://via.placeholder.com/600x800',
   ];
 
+  const handleStartChat = () => {
+    router.push(`/chat/${profile.id}`);
+  };
+
+  const handleWriteLetter = () => {
+    router.push(`/letters?to=${profile.id}`);
+  };
+
+  const handleToggleFavorite = () => {
+    setNotification('Added to Favorites!');
+    setTimeout(() => setNotification(''), 3000);
+  };
+
+  const handleSayHello = () => {
+    setNotification('Sent "Hello" greeting!');
+    setTimeout(() => setNotification(''), 3000);
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
       <div className="bg-white max-w-4xl w-full rounded-3xl overflow-hidden shadow-2xl border border-slate-200 my-8 relative animate-in fade-in zoom-in duration-200">
         
+        {notification && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-lg">
+            {notification}
+          </div>
+        )}
+
         {/* Top Actions Bar */}
         <div className="flex items-center justify-between border-b border-slate-100 p-4 px-6 bg-slate-50">
           <div className="flex items-center gap-3">
-            <button className="border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs px-4 py-2 rounded-xl transition flex items-center gap-1.5">
+            <button 
+              onClick={handleWriteLetter}
+              className="border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs px-4 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+            >
               ✉️ Write a letter
             </button>
-            <button className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-4 py-2 rounded-xl shadow transition flex items-center gap-1.5">
+            <button 
+              onClick={handleStartChat}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-4 py-2 rounded-xl shadow transition flex items-center gap-1.5 cursor-pointer"
+            >
               💬 Start chatting
             </button>
-            <button className="border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs px-4 py-2 rounded-xl transition flex items-center gap-1.5">
+            <button 
+              onClick={handleToggleFavorite}
+              className="border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs px-4 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+            >
               ⭐ Favorites
             </button>
-            <button className="border border-slate-300 bg-white hover:bg-slate-100 text-slate-500 font-bold text-xs px-4 py-2 rounded-xl transition flex items-center gap-1.5">
+            <button 
+              onClick={() => alert('Complain submitted to administration.')}
+              className="border border-slate-300 bg-white hover:bg-slate-100 text-slate-500 font-bold text-xs px-4 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+            >
               ⚠️ Complain
             </button>
           </div>
 
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-800 text-2xl font-bold px-2 py-1"
+            className="text-slate-400 hover:text-slate-800 text-2xl font-bold px-2 py-1 cursor-pointer"
           >
             ✕
           </button>
@@ -65,11 +108,19 @@ export default function ProfileDetailModal({ profile, onClose }) {
               </div>
 
               <div className="flex items-center gap-3">
-                <button className="bg-blue-50 border border-blue-200 text-blue-600 font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-blue-100 transition flex items-center gap-2">
+                <button 
+                  onClick={handleSayHello}
+                  className="bg-blue-50 border border-blue-200 text-blue-600 font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-blue-100 transition flex items-center gap-2 cursor-pointer"
+                >
                   👋 Say "Hello"
                 </button>
-                <button className="bg-blue-600 text-white font-bold text-xs px-5 py-2.5 rounded-xl hover:bg-blue-700 transition flex items-center gap-2 shadow">
-                  💙 Like
+                <button 
+                  onClick={() => setIsLiked(!isLiked)}
+                  className={`font-bold text-xs px-5 py-2.5 rounded-xl transition flex items-center gap-2 shadow cursor-pointer ${
+                    isLiked ? 'bg-emerald-600 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'
+                  }`}
+                >
+                  {isLiked ? '💚 Liked' : '💙 Like'}
                 </button>
               </div>
 
