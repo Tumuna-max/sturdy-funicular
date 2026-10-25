@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import ClientSidebar from '@/components/ClientSidebar';
+import BackButton from '@/components/BackButton';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -13,6 +14,7 @@ export default function UnreadPage() {
   const router = useRouter();
   const [unreadMessages, setUnreadMessages] = useState([]);
   const [loading, setLoading] = useState(true);
+  const clientId = '1404449847';
 
   useEffect(() => {
     async function fetchUnread() {
@@ -20,10 +22,12 @@ export default function UnreadPage() {
         setLoading(false);
         return;
       }
+      // Fetch only unread messages where sender is NOT the client
       const { data, error } = await supabase
         .from('messages')
         .select('*')
         .eq('is_read', false)
+        .neq('sender_id', clientId)
         .order('created_at', { ascending: false });
 
       if (!error && data) {
@@ -37,7 +41,6 @@ export default function UnreadPage() {
   const handleOpenChat = async (msg) => {
     const targetProfileId = msg.profile_id || msg.sender_id;
     if (targetProfileId) {
-      // Mark message as read when clicked
       await supabase
         .from('messages')
         .update({ is_read: true })
@@ -52,7 +55,7 @@ export default function UnreadPage() {
       <ClientSidebar credits={20} userName="Tumuna Mwabili" />
 
       <main className="flex-1 overflow-y-auto p-8 space-y-6">
-       <import BackButton from '@/components/BackButton';/>
+        <BackButton label="Back to browse" />
         <h1 className="text-2xl font-black text-slate-800">Unread Messages</h1>
 
         {loading ? (
