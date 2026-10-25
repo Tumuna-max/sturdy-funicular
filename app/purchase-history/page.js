@@ -51,6 +51,7 @@ export default function PurchaseHistoryPage() {
       <ClientSidebar credits={credits} userName="Tumuna Mwabili" />
 
       <main className="flex-1 overflow-y-auto p-8 space-y-6">
+       <import BackButton from '@/components/BackButton';/>
         <h1 className="text-2xl font-black text-slate-800">Credits & Purchase History</h1>
 
         {errorMsg && (
