@@ -51,7 +51,7 @@ export default function OperatorConsole() {
     checkAuth();
   }, []);
 
-  // Fetch Hosts & Unread Counts
+  // Fetch Hosts & Unread Counts Globally across all profiles instantly
   useEffect(() => {
     if (!workerUser) return;
 
@@ -81,7 +81,11 @@ export default function OperatorConsole() {
     }
 
     fetchHostsAndUnreads();
-  }, [workerUser, selectedHost]);
+
+    // Poll or setup interval to keep unread badges updated globally in real-time
+    const interval = setInterval(fetchHostsAndUnreads, 5000);
+    return () => clearInterval(interval);
+  }, [workerUser]);
 
   // Fetch Client Chats for Selected Host
   useEffect(() => {
@@ -139,6 +143,16 @@ export default function OperatorConsole() {
           if (!newMsg.is_operator_reply) {
             playOperatorAlertSound();
 
+            // Refresh host unreads count dynamically
+            setHosts((prevHosts) =>
+              prevHosts.map((h) => {
+                if (h.id === newMsg.receiver_id || h.id === newMsg.profile_id) {
+                  return { ...h, unreadCount: (h.unreadCount || 0) + 1 };
+                }
+                return h;
+              })
+            );
+
             // Append to current open thread if relevant
             if (
               selectedClient &&
@@ -182,6 +196,16 @@ export default function OperatorConsole() {
           .update({ is_read: true })
           .eq('sender_id', selectedClient.id)
           .or(`receiver_id.eq.${selectedHost.id},profile_id.eq.${selectedHost.id}`);
+
+        // Clear unread count for current host locally
+        setHosts((prevHosts) =>
+          prevHosts.map((h) => {
+            if (h.id === selectedHost.id) {
+              return { ...h, unreadCount: 0 };
+            }
+            return h;
+          })
+        );
       }
     }
 
@@ -424,12 +448,4 @@ export default function OperatorConsole() {
                 className="flex-1 border rounded-xl p-3 text-sm bg-white"
               />
               <button type="submit" disabled={sending} className="bg-blue-600 text-white font-bold px-6 py-3 rounded-xl">
-                {sending ? 'Sending...' : 'Send Reply'}
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
-    </div>
-  );
-}
+                {sending
