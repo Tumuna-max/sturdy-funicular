@@ -4,50 +4,46 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import ClientSidebar from '@/components/ClientSidebar';
+import BackButton from '@/components/BackButton';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
-export default function ActiveChatsPage() {
+export default function ChatsInboxPage() {
   const router = useRouter();
   const [conversations, setConversations] = useState([]);
   const [loading, setLoading] = useState(true);
   const clientId = '1404449847';
 
   useEffect(() => {
-    async function fetchActiveConversations() {
+    async function fetchConversations() {
       if (!supabase) {
         setLoading(false);
         return;
       }
 
-      // Fetch all messages involving this client
-      const { data: messages, error } = await supabase
+      const { data: messages } = await supabase
         .from('messages')
         .select('*')
-        .or(`sender_id.eq.${clientId},receiver_id.eq.${clientId}`)
+        .or(`sender_id.eq.${clientId},receiver_id.eq.${clientId},profile_id.eq.${clientId}`)
         .order('created_at', { ascending: false });
 
-      if (!error && messages) {
-        // Extract unique profile/lady IDs from messages
+      if (messages && messages.length > 0) {
         const profileMap = new Map();
-
         messages.forEach((m) => {
-          const profileId = m.profile_id || (m.sender_id === clientId ? m.receiver_id : m.sender_id);
-          if (profileId && profileId !== clientId && !profileMap.has(profileId)) {
-            profileMap.set(profileId, {
-              lastMessage: m.content || 'Attachment sent',
+          const targetId = m.profile_id || (m.sender_id === clientId ? m.receiver_id : m.sender_id);
+          if (targetId && targetId !== clientId && !profileMap.has(targetId)) {
+            profileMap.set(targetId, {
+              lastMessage: m.content || 'Attachment',
               timestamp: m.created_at,
-              unread: !m.is_read && m.sender_id !== clientId,
+              unread: !m.is_read && m.sender_id !== clientId
             });
           }
         });
 
         const profileIds = Array.from(profileMap.keys());
-
         if (profileIds.length > 0) {
-          // Fetch profile details for these IDs
           const { data: profilesData } = await supabase
             .from('profiles')
             .select('*')
@@ -55,13 +51,13 @@ export default function ActiveChatsPage() {
 
           if (profilesData) {
             const formatted = profilesData.map((p) => {
-              const convoInfo = profileMap.get(p.id) || {};
+              const info = profileMap.get(p.id) || {};
               return {
                 ...p,
                 resolvedImg: p.image_url || p.avatar_url || p.image || p.photo_url || '',
-                lastMessage: convoInfo.lastMessage,
-                timestamp: convoInfo.timestamp,
-                unread: convoInfo.unread,
+                lastMessage: info.lastMessage,
+                timestamp: info.timestamp,
+                unread: info.unread
               };
             });
             setConversations(formatted);
@@ -71,7 +67,7 @@ export default function ActiveChatsPage() {
       setLoading(false);
     }
 
-    fetchActiveConversations();
+    fetchConversations();
   }, []);
 
   return (
@@ -79,16 +75,17 @@ export default function ActiveChatsPage() {
       <ClientSidebar credits={20} userName="Tumuna Mwabili" />
 
       <main className="flex-1 overflow-y-auto p-8 space-y-6">
-        <h1 className="text-2xl font-black text-slate-800">Active Conversations</h1>
+        <BackButton label="Back to browse" />
+        <h1 className="text-2xl font-black text-slate-800">All Active Chats</h1>
 
         {loading ? (
-          <div className="text-center py-12 text-slate-400 text-xs font-semibold">Loading active chats...</div>
+          <div className="text-center py-12 text-slate-400 text-xs">Loading active chats...</div>
         ) : conversations.length === 0 ? (
           <div className="bg-white p-12 rounded-3xl border border-slate-200 shadow-sm text-center space-y-3">
             <span className="text-5xl">💬</span>
-            <h2 className="font-extrabold text-slate-800 text-lg">No Active Chats</h2>
+            <h2 className="font-extrabold text-slate-800 text-lg">No Active Conversations</h2>
             <p className="text-xs text-slate-400 max-w-sm mx-auto">
-              Start a chat from any profile card to keep your conversations saved here.
+              Click "Chat" on any profile card to start a conversation. Your active chats will show up here!
             </p>
           </div>
         ) : (
@@ -109,9 +106,7 @@ export default function ActiveChatsPage() {
                   </div>
                   <p className="text-xs text-slate-500 truncate mt-1">{lady.lastMessage}</p>
                 </div>
-                {lady.unread && (
-                  <span className="w-3 h-3 rounded-full bg-blue-600 shrink-0 animate-pulse"></span>
-                )}
+                {lady.unread && <span className="w-3 h-3 rounded-full bg-blue-600 shrink-0 animate-pulse"></span>}
               </div>
             ))}
           </div>
