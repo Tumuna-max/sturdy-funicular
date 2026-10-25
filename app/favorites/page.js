@@ -8,6 +8,7 @@ export default function FavoritesPage() {
       <ClientSidebar credits={20} userName="Tumuna Mwabili" />
 
       <main className="flex-1 overflow-y-auto p-8 space-y-6">
+       <import BackButton from '@/components/BackButton';/>
         <h1 className="text-2xl font-black text-slate-800">Favorite Profiles</h1>
 
         <div className="bg-white p-12 rounded-3xl border border-slate-200 shadow-sm text-center space-y-3">
