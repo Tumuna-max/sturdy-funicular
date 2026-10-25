@@ -12,7 +12,6 @@ const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabase
 
 export default function ChatRoomPage() {
   const params = useParams();
-  const router = useRouter();
   const profileId = params.id;
 
   const [profile, setProfile] = useState(null);
@@ -25,7 +24,6 @@ export default function ChatRoomPage() {
     async function loadChatData() {
       if (!supabase || !profileId) return;
 
-      // Fetch profile info
       const { data: profileData } = await supabase
         .from('profiles')
         .select('*')
@@ -39,7 +37,6 @@ export default function ChatRoomPage() {
         });
       }
 
-      // Fetch message history between client and this profile
       const { data: msgData } = await supabase
         .from('messages')
         .select('*')
@@ -55,7 +52,6 @@ export default function ChatRoomPage() {
     loadChatData();
   }, [profileId]);
 
-  // Realtime listener for incoming replies from operator/host
   useEffect(() => {
     if (!supabase || !profileId) return;
 
@@ -113,7 +109,7 @@ export default function ChatRoomPage() {
       <ClientSidebar credits={20} userName="Tumuna Mwabili" />
 
       <main className="flex-1 flex flex-col justify-between h-screen p-6 overflow-hidden">
-        {/* Header */}
+        {/* Header with Back Button */}
         <div className="flex items-center justify-between border-b border-slate-200 pb-4 bg-white p-4 rounded-2xl shadow-sm">
           <div className="flex items-center gap-3">
             <BackButton label="Back" />
