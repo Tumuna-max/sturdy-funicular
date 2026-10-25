@@ -4,13 +4,13 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import ClientSidebar from '@/components/ClientSidebar';
-import BackButton from '@/components/BackButton';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
 export default function ChatRoomPage() {
+  const router = useRouter();
   const params = useParams();
   const profileId = params.id;
 
@@ -37,45 +37,24 @@ export default function ChatRoomPage() {
         });
       }
 
-      const { data: msgData } = await supabase
+      // Fetch messages where either sender or receiver matches
+      const { data: msgData, error } = await supabase
         .from('messages')
         .select('*')
-        .or(`and(sender_id.eq.${clientId},or(receiver_id.eq.${profileId},profile_id.eq.${profileId})),and(sender_id.eq.${profileId},or(receiver_id.eq.${clientId},profile_id.eq.${clientId}))`)
+        .or(`sender_id.eq.${clientId},receiver_id.eq.${clientId},profile_id.eq.${profileId}`)
         .order('created_at', { ascending: true });
 
-      if (msgData) {
-        setMessages(msgData);
+      if (!error && msgData) {
+        // Filter strictly for conversation with this profile
+        const filtered = msgData.filter(
+          m => m.sender_id === profileId || m.receiver_id === profileId || m.profile_id === profileId
+        );
+        setMessages(filtered);
       }
       setLoading(false);
     }
 
     loadChatData();
-  }, [profileId]);
-
-  useEffect(() => {
-    if (!supabase || !profileId) return;
-
-    const channel = supabase
-      .channel(`chat-${profileId}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages' },
-        (payload) => {
-          const newMsg = payload.new;
-          if (
-            newMsg.sender_id === profileId || 
-            newMsg.receiver_id === clientId || 
-            newMsg.profile_id === profileId
-          ) {
-            setMessages((prev) => [...prev, newMsg]);
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, [profileId]);
 
   const handleSendMessage = async (e) => {
@@ -99,7 +78,9 @@ export default function ChatRoomPage() {
       ])
       .select('*');
 
-    if (!error && data) {
+    if (error) {
+      alert('Error sending message: ' + error.message);
+    } else if (data) {
       setMessages((prev) => [...prev, data[0]]);
     }
   };
@@ -109,10 +90,15 @@ export default function ChatRoomPage() {
       <ClientSidebar credits={20} userName="Tumuna Mwabili" />
 
       <main className="flex-1 flex flex-col justify-between h-screen p-6 overflow-hidden">
-        {/* Header with Back Button */}
+        {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 pb-4 bg-white p-4 rounded-2xl shadow-sm">
           <div className="flex items-center gap-3">
-            <BackButton label="Back" />
+            <button
+              onClick={() => router.back()}
+              className="flex items-center gap-2 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-bold text-xs px-4 py-2 rounded-xl shadow-sm transition cursor-pointer w-fit"
+            >
+              <span>←</span> Back
+            </button>
             {profile && (
               <div className="flex items-center gap-3">
                 <img src={profile.resolvedImg} alt={profile.name} className="w-10 h-10 rounded-full object-cover border" />
