@@ -18,7 +18,9 @@ export default function ChatRoomPage() {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(true);
-  const clientId = '1404449847';
+  
+  // Use a valid UUID format so Supabase doesn't throw a syntax error
+  const clientId = 'a0000000-0000-0000-0000-000000000001';
 
   useEffect(() => {
     async function loadChatData() {
@@ -37,15 +39,12 @@ export default function ChatRoomPage() {
         });
       }
 
-      // Fetch messages where either sender or receiver matches
       const { data: msgData, error } = await supabase
         .from('messages')
         .select('*')
-        .or(`sender_id.eq.${clientId},receiver_id.eq.${clientId},profile_id.eq.${profileId}`)
         .order('created_at', { ascending: true });
 
       if (!error && msgData) {
-        // Filter strictly for conversation with this profile
         const filtered = msgData.filter(
           m => m.sender_id === profileId || m.receiver_id === profileId || m.profile_id === profileId
         );
@@ -145,7 +144,7 @@ export default function ChatRoomPage() {
           <input
             type="text"
             value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
+            onChange={(e) => setInputTest(e.target.value)}
             placeholder="Type your message..."
             className="flex-1 text-xs outline-none px-3 bg-transparent text-slate-700"
           />
