@@ -20,7 +20,8 @@ function LetterContent() {
   const [sending, setSending] = useState(false);
   const [sentSuccess, setSentSuccess] = useState(false);
 
-  const clientId = '1404449847';
+  // Standardized client UUID
+  const clientId = 'a0000000-0000-0000-0000-000000000001';
 
   useEffect(() => {
     async function fetchRecipient() {
@@ -64,7 +65,9 @@ function LetterContent() {
 
     setSending(false);
 
-    if (!error) {
+    if (error) {
+      alert('Error sending letter: ' + error.message);
+    } else {
       setSentSuccess(true);
       setSubject('');
       setLetterBody('');
