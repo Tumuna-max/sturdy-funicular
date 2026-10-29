@@ -13,7 +13,9 @@ export default function ChatsInboxPage() {
   const router = useRouter();
   const [conversations, setConversations] = useState([]);
   const [loading, setLoading] = useState(true);
-  const clientId = '1404449847';
+
+  // Standardized client UUID
+  const clientId = 'a0000000-0000-0000-0000-000000000001';
 
   useEffect(() => {
     async function fetchConversations() {
@@ -25,7 +27,6 @@ export default function ChatsInboxPage() {
       const { data: messages } = await supabase
         .from('messages')
         .select('*')
-        .or(`sender_id.eq.${clientId},receiver_id.eq.${clientId},profile_id.eq.${clientId}`)
         .order('created_at', { ascending: false });
 
       if (messages && messages.length > 0) {
