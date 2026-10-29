@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import ClientSidebar from '@/components/ClientSidebar';
-import BackButton from '@/components/BackButton';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -14,7 +13,9 @@ export default function UnreadPage() {
   const router = useRouter();
   const [unreadMessages, setUnreadMessages] = useState([]);
   const [loading, setLoading] = useState(true);
-  const clientId = '1404449847';
+
+  // Standardized client UUID
+  const clientId = 'a0000000-0000-0000-0000-000000000001';
 
   useEffect(() => {
     async function fetchUnread() {
@@ -54,7 +55,13 @@ export default function UnreadPage() {
       <ClientSidebar credits={20} userName="Tumuna Mwabili" />
 
       <main className="flex-1 overflow-y-auto p-8 space-y-6">
-        <BackButton label="Back to browse" />
+        <button
+          onClick={() => router.back()}
+          className="flex items-center gap-2 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-bold text-xs px-4 py-2 rounded-xl shadow-sm transition cursor-pointer w-fit"
+        >
+          <span>←</span> Back
+        </button>
+
         <h1 className="text-2xl font-black text-slate-800">Unread Messages</h1>
 
         {loading ? (
@@ -64,7 +71,7 @@ export default function UnreadPage() {
             <span className="text-5xl">🏳️</span>
             <h2 className="font-extrabold text-slate-800 text-lg">All Messages Read</h2>
             <p className="text-xs text-slate-400 max-w-sm mx-auto">
-              You don't have any unread notifications or messages right now.
+              You don't have any unread notifications or incoming messages right now.
             </p>
           </div>
         ) : (
