@@ -29,7 +29,8 @@ export default function ChatRoomPage() {
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(true);
   const [credits, setCredits] = useState(20);
-  const [unlockModalPhoto, setUnlockModalPhoto] = useState(null);
+  const [unlockedPhotoIds, setUnlockedPhotoIds] = useState({});
+  const [viewingPhotoUrl, setViewingPhotoUrl] = useState(null);
 
   const clientId = getClientUuid();
 
@@ -95,18 +96,26 @@ export default function ChatRoomPage() {
     }
   };
 
-  const handleUnlockPhoto = (msg) => {
+  const handlePhotoClick = (msg) => {
+    // If already unlocked, view the full image immediately
+    if (unlockedPhotoIds[msg.id]) {
+      const imgUrl = msg.media_url || profile?.resolvedImg || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600';
+      setViewingPhotoUrl(imgUrl);
+      return;
+    }
+
+    // Otherwise prompt to unlock
     if (credits < 5) {
       alert('You need at least 5 credits to unlock this photo. Please add credits.');
       return;
     }
-    setUnlockModalPhoto(msg);
-  };
 
-  const confirmUnlock = () => {
-    setCredits((prev) => prev - 5);
-    setUnlockModalPhoto(null);
-    alert('Photo unlocked successfully!');
+    if (confirm('Unlock this photo for 5 credits?')) {
+      setCredits((prev) => prev - 5);
+      setUnlockedPhotoIds((prev) => ({ ...prev, [msg.id]: true }));
+      const imgUrl = msg.media_url || profile?.resolvedImg || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600';
+      setViewingPhotoUrl(imgUrl);
+    }
   };
 
   return (
@@ -148,20 +157,34 @@ export default function ChatRoomPage() {
           ) : (
             messages.map((m, idx) => {
               const isMe = m.sender_id === clientId;
-              const isPhoto = m.content?.toLowerCase().includes('photo');
+              const isPhoto = m.content?.toLowerCase().includes('photo') || m.media_url;
+              const isUnlocked = unlockedPhotoIds[m.id];
 
               return (
                 <div key={idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                   {isPhoto && !isMe ? (
                     <div
-                      onClick={() => handleUnlockPhoto(m)}
-                      className="bg-amber-50 border border-amber-200 p-4 rounded-2xl shadow-sm cursor-pointer hover:bg-amber-100 transition flex items-center gap-3"
+                      onClick={() => handlePhotoClick(m)}
+                      className="bg-white border border-slate-200 p-3 rounded-2xl shadow-sm cursor-pointer hover:border-blue-500 transition max-w-xs space-y-2"
                     >
-                      <span className="text-2xl">📸</span>
-                      <div>
-                        <p className="text-xs font-extrabold text-amber-900">Protected Photo Received</p>
-                        <p className="text-[10px] text-amber-700 mt-0.5">Click to unlock for 5 credits</p>
+                      <div className="relative h-44 rounded-xl overflow-hidden bg-slate-100 flex items-center justify-center">
+                        {isUnlocked ? (
+                          <img
+                            src={m.media_url || profile?.resolvedImg || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600'}
+                            alt="Unlocked photo"
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md flex flex-col items-center justify-center text-white p-4 text-center space-y-1">
+                            <span className="text-3xl">🔒</span>
+                            <p className="text-xs font-bold">Protected Photo</p>
+                            <p className="text-[10px] text-slate-300">Click to unlock (5 Credits)</p>
+                          </div>
+                        )}
                       </div>
+                      <p className="text-[11px] font-bold text-slate-700 text-center">
+                        {isUnlocked ? 'Unlocked Photo (Click to view)' : 'Tap to Open Photo'}
+                      </p>
                     </div>
                   ) : (
                     <div className={`max-w-md p-3.5 rounded-2xl text-xs font-semibold ${
@@ -179,7 +202,7 @@ export default function ChatRoomPage() {
           )}
         </div>
 
-        {/* Send Input Bar - Fully Editable */}
+        {/* Send Input Bar */}
         <form onSubmit={handleSendMessage} className="flex gap-2 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
           <input
             type="text"
@@ -196,29 +219,19 @@ export default function ChatRoomPage() {
           </button>
         </form>
 
-        {/* Unlock Photo Modal */}
-        {unlockModalPhoto && (
-          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl text-center space-y-4">
-              <span className="text-5xl">🎁</span>
-              <h3 className="text-lg font-black text-slate-800">Unlock Photo</h3>
-              <p className="text-xs text-slate-500">
-                Would you like to spend <strong className="text-blue-600">5 credits</strong> to open and view this photo?
-              </p>
-              <div className="grid grid-cols-2 gap-2 pt-2">
-                <button
-                  onClick={() => setUnlockModalPhoto(null)}
-                  className="border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs py-2.5 rounded-xl transition cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={confirmUnlock}
-                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-2.5 rounded-xl transition cursor-pointer"
-                >
-                  Unlock (5 Cr)
-                </button>
+        {/* Full Image Preview Modal */}
+        {viewingPhotoUrl && (
+          <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-3xl p-4 max-w-md w-full shadow-2xl space-y-4 text-center">
+              <div className="relative h-96 rounded-2xl overflow-hidden bg-slate-100">
+                <img src={viewingPhotoUrl} alt="Full preview" className="w-full h-full object-cover" />
               </div>
+              <button
+                onClick={() => setViewingPhotoUrl(null)}
+                className="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs py-3 rounded-xl transition cursor-pointer"
+              >
+                Close Photo
+              </button>
             </div>
           </div>
         )}
