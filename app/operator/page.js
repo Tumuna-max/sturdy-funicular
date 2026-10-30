@@ -10,7 +10,7 @@ const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabase
 export default function OperatorPage() {
   const [hosts, setHosts] = useState([]);
   const [selectedHostId, setSelectedHostId] = useState(null);
-  const [conversations, setConversations] = useState([]);
+  const [unrepliedItems, setUnrepliedItems] = useState([]);
   const [selectedClientId, setSelectedClientId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [replyText, setReplyText] = useState('');
@@ -18,6 +18,9 @@ export default function OperatorPage() {
   const [clientLikes, setClientLikes] = useState({});
   const [photoUrlInput, setPhotoUrlInput] = useState('');
   const [showPhotoModal, setShowPhotoModal] = useState(false);
+  const [showLetterModal, setShowLetterModal] = useState(false);
+  const [letterSubject, setLetterSubject] = useState('');
+  const [letterBody, setLetterBody] = useState('');
 
   // 1. Fetch Host Profiles once on mount
   useEffect(() => {
@@ -25,64 +28,84 @@ export default function OperatorPage() {
       if (!supabase) return;
       const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
       if (data && data.length > 0) {
-        setHosts(
-          data.map((p) => ({
-            ...p,
-            resolvedImg: p.image_url || p.avatar_url || p.image || p.photo_url || ''
-          }))
-        );
-        // Default to first host only if no host is selected yet
-        setSelectedHostId((prev) => prev || data[0].id);
+        const formatted = data.map((p) => ({
+          ...p,
+          resolvedImg: p.image_url || p.avatar_url || p.image || p.photo_url || ''
+        }));
+        setHosts(formatted);
+        setSelectedHostId((prev) => prev || formatted[0].id);
       }
     }
     fetchHosts();
   }, []);
 
-  // 2. Fetch conversations for the selected host
+  // 2. Fetch ALL unreplied client messages / letters across the entire database
   useEffect(() => {
-    async function fetchHostChats() {
-      if (!supabase || !selectedHostId) return;
+    async function fetchGlobalUnrepliedInbox() {
+      if (!supabase) return;
 
       const { data: allMsg } = await supabase
         .from('messages')
         .select('*')
-        .or(`sender_id.eq.${selectedHostId},receiver_id.eq.${selectedHostId},profile_id.eq.${selectedHostId}`)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: true });
 
       if (allMsg) {
-        const clientMap = new Map();
-        allMsg.forEach((m) => {
-          const clientId = m.profile_id === selectedHostId ? m.sender_id : (m.sender_id === selectedHostId ? m.receiver_id : m.sender_id);
-          const isLetter = m.content?.includes('[LETTER');
+        // Group messages by host (profile_id / receiver_id) and client (sender_id)
+        const threadMap = new Map();
 
-          if (clientId && clientId !== selectedHostId && !clientMap.has(clientId)) {
-            clientMap.set(clientId, {
+        allMsg.forEach((m) => {
+          // Identify if message is from client to host or host to client
+          const isFromClient = !m.is_operator_reply && m.sender_id !== m.profile_id;
+          const hostId = m.profile_id || m.receiver_id;
+          const clientId = isFromClient ? m.sender_id : m.receiver_id;
+
+          if (!hostId || !clientId) return;
+
+          const key = `${hostId}_${clientId}`;
+          if (!threadMap.has(key)) {
+            threadMap.set(key, {
+              hostId,
               clientId,
-              lastMessage: m.content,
+              messages: []
+            });
+          }
+          threadMap.get(key).messages.push(m);
+        });
+
+        // Filter threads where the last message is from the client (unreplied)
+        const unrepliedList = [];
+        threadMap.forEach((thread, key) => {
+          const sortedMsgs = thread.messages.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+          const lastMsg = sortedMsgs[sortedMsgs.length - 1];
+          const isLetter = lastMsg.content?.includes('[LETTER');
+
+          // If last message is from client, it's unreplied
+          if (lastMsg && !lastMsg.is_operator_reply && lastMsg.sender_id !== thread.hostId) {
+            unrepliedList.push({
+              key,
+              hostId: thread.hostId,
+              clientId: thread.clientId,
+              lastMessage: lastMsg.content,
               isLetter,
-              timestamp: m.created_at
+              timestamp: lastMsg.created_at
             });
           }
         });
 
-        const list = Array.from(clientMap.values());
-        setConversations(list);
+        setUnrepliedItems(unrepliedList);
 
-        if (list.length > 0) {
-          setSelectedClientId((prev) => {
-            const exists = list.some((c) => c.clientId === prev);
-            return exists ? prev : list[0].clientId;
-          });
-        } else {
-          setSelectedClientId(null);
+        // Default selection if none selected
+        if (unrepliedList.length > 0 && !selectedClientId) {
+          setSelectedHostId(unrepliedList[0].hostId);
+          setSelectedClientId(unrepliedList[0].clientId);
         }
       }
     }
 
-    fetchHostChats();
-  }, [selectedHostId]);
+    fetchGlobalUnrepliedInbox();
+  }, []);
 
-  // 3. Fetch message thread for current host + client pair
+  // 3. Fetch message thread for current active host + client pair
   useEffect(() => {
     async function fetchThread() {
       if (!supabase || !selectedHostId || !selectedClientId) {
@@ -129,6 +152,35 @@ export default function OperatorPage() {
 
     if (!error && data) {
       setMessages((prev) => [...prev, data[0]]);
+      // Refresh inbox to remove replied item
+      setUnrepliedItems((prev) => prev.filter((item) => !(item.hostId === selectedHostId && item.clientId === selectedClientId)));
+    }
+  };
+
+  // Handle sending a letter as operator
+  const handleSendLetter = async (e) => {
+    e.preventDefault();
+    if (!letterBody.trim() || !supabase || !selectedHostId || !selectedClientId) return;
+
+    const fullContent = `[LETTER: ${letterSubject || 'Special Message'}]\n\n${letterBody}`;
+
+    const payload = {
+      sender_id: selectedHostId,
+      receiver_id: selectedClientId,
+      profile_id: selectedHostId,
+      content: fullContent,
+      is_read: false,
+      is_operator_reply: true
+    };
+
+    const { data, error } = await supabase.from('messages').insert([payload]).select('*');
+
+    if (!error && data) {
+      setMessages((prev) => [...prev, data[0]]);
+      setLetterSubject('');
+      setLetterBody('');
+      setShowLetterModal(false);
+      setUnrepliedItems((prev) => prev.filter((item) => !(item.hostId === selectedHostId && item.clientId === selectedClientId)));
     }
   };
 
@@ -152,6 +204,7 @@ export default function OperatorPage() {
       setMessages((prev) => [...prev, data[0]]);
       setPhotoUrlInput('');
       setShowPhotoModal(false);
+      setUnrepliedItems((prev) => prev.filter((item) => !(item.hostId === selectedHostId && item.clientId === selectedClientId)));
     }
   };
 
@@ -163,7 +216,10 @@ export default function OperatorPage() {
 
   const selectedHost = hosts.find((h) => h.id === selectedHostId);
 
-  // Separate messages into regular chat vs letters
+  // Filter unreplied items based on tab (Chats vs Letters)
+  const filteredInbox = unrepliedItems.filter((item) => (activeTab === 'letters' ? item.isLetter : !item.isLetter));
+
+  // Separate messages into regular chat vs letters in the workspace
   const filteredMessages = messages.filter((m) => {
     const isLetter = m.content?.includes('[LETTER');
     return activeTab === 'letters' ? isLetter : !isLetter;
@@ -198,11 +254,10 @@ export default function OperatorPage() {
         </div>
       </div>
 
-      {/* COLUMN 2: CLIENT CHATS & LETTERS LIST */}
+      {/* COLUMN 2: GLOBAL UNREPLIED INBOX (CHATS & LETTERS) */}
       <div className="w-72 bg-white border-r border-slate-200 flex flex-col">
         <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-          <h2 className="text-xs font-black uppercase text-slate-500 tracking-wider">Client Messages</h2>
-          {/* View switcher between Chat & Letters */}
+          <h2 className="text-xs font-black uppercase text-slate-500 tracking-wider">Unreplied Inbox</h2>
           <div className="flex bg-slate-200 p-0.5 rounded-lg text-[10px] font-bold">
             <button
               onClick={() => setActiveTab('chats')}
@@ -220,24 +275,30 @@ export default function OperatorPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
-          {conversations.length === 0 ? (
-            <div className="p-6 text-center text-slate-400 text-xs">No conversation threads found.</div>
+          {filteredInbox.length === 0 ? (
+            <div className="p-6 text-center text-slate-400 text-xs">All {activeTab} have been replied! 🎉</div>
           ) : (
-            conversations.map((c) => {
-              const isSelected = c.clientId === selectedClientId;
+            filteredInbox.map((item) => {
+              const isSelected = item.hostId === selectedHostId && item.clientId === selectedClientId;
+              const hostObj = hosts.find((h) => h.id === item.hostId);
+
               return (
                 <div
-                  key={c.clientId}
-                  onClick={() => setSelectedClientId(c.clientId)}
+                  key={item.key}
+                  onClick={() => {
+                    setSelectedHostId(item.hostId);
+                    setSelectedClientId(item.clientId);
+                  }}
                   className={`p-3.5 cursor-pointer transition ${
                     isSelected ? 'bg-blue-50 border-l-4 border-blue-600' : 'hover:bg-slate-50'
                   }`}
                 >
                   <div className="flex justify-between items-center mb-1">
-                    <span className="text-xs font-bold text-slate-800">Client ID: {c.clientId.slice(0, 8)}...</span>
-                    <span className="text-[9px] text-slate-400">{new Date(c.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    <span className="text-xs font-bold text-slate-800">To: {hostObj?.name || 'Host'}</span>
+                    <span className="text-[9px] text-slate-400">{new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                   </div>
-                  <p className="text-xs text-slate-500 truncate">{c.lastMessage}</p>
+                  <p className="text-[11px] font-medium text-slate-600 truncate">Client: {item.clientId.slice(0, 8)}...</p>
+                  <p className="text-xs text-slate-500 truncate mt-0.5">{item.lastMessage}</p>
                 </div>
               );
             })
@@ -256,8 +317,15 @@ export default function OperatorPage() {
 
           <div className="flex items-center gap-3">
             <button
+              onClick={() => setShowLetterModal(true)}
+              className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs px-4 py-2 rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+            >
+              ✉️ Write Letter
+            </button>
+
+            <button
               onClick={toggleClientLike}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border ${
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border shadow-sm ${
                 clientLikes[selectedClientId]
                   ? 'bg-rose-50 border-rose-200 text-rose-600'
                   : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
@@ -265,6 +333,7 @@ export default function OperatorPage() {
             >
               {clientLikes[selectedClientId] ? '❤️ Client Liked' : '💙 Like Client'}
             </button>
+
             <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px-3 py-1.5 rounded-full">
               Operator Active
             </span>
@@ -275,7 +344,7 @@ export default function OperatorPage() {
         <div className="flex-1 overflow-y-auto p-6 space-y-3">
           {filteredMessages.length === 0 ? (
             <div className="text-center text-slate-400 text-xs py-12">
-              No {activeTab === 'letters' ? 'letters' : 'chat messages'} in this thread.
+              Select an unread {activeTab === 'letters' ? 'letter' : 'chat'} from the inbox to start replying.
             </div>
           ) : (
             filteredMessages.map((m, idx) => {
@@ -345,18 +414,67 @@ export default function OperatorPage() {
               />
               <div className="grid grid-cols-2 gap-2">
                 <button
+                  type="button"
                   onClick={() => setShowPhotoModal(false)}
-                  className="border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs py-2.5 rounded-xl"
+                  className="border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs py-2.5 rounded-xl cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
+                  type="button"
                   onClick={handleSendPhoto}
-                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-2.5 rounded-xl"
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-2.5 rounded-xl cursor-pointer"
                 >
                   Send Photo
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal: Write Letter to Client */}
+        {showLetterModal && (
+          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-4">
+              <h3 className="font-extrabold text-sm text-slate-800">Write Letter from {selectedHost?.name}</h3>
+              <form onSubmit={handleSendLetter} className="space-y-3">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Subject</label>
+                  <input
+                    type="text"
+                    value={letterSubject}
+                    onChange={(e) => setLetterSubject(e.target.value)}
+                    placeholder="Letter title..."
+                    className="w-full border p-3 rounded-xl text-xs outline-none bg-slate-50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Letter Content</label>
+                  <textarea
+                    rows={6}
+                    value={letterBody}
+                    onChange={(e) => setLetterBody(e.target.value)}
+                    placeholder="Write your long-form letter..."
+                    className="w-full border p-3 rounded-xl text-xs outline-none bg-slate-50"
+                    required
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowLetterModal(false)}
+                    className="border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs py-2.5 rounded-xl cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-2.5 rounded-xl cursor-pointer"
+                  >
+                    Send Letter
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}
