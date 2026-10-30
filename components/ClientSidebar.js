@@ -23,7 +23,7 @@ export default function ClientSidebar({ credits = 20, userName = 'Tumuna Mwabili
   const pathname = usePathname();
   const [unreadCount, setUnreadCount] = useState(0);
   const [toastMessage, setToastMessage] = useState(null);
-  const [isOpen, setIsOpen] = useState(false); // Collapsible drawer state for mobile/tablet
+  const [isOpen, setIsOpen] = useState(false);
   const clientId = getClientUuid();
 
   useEffect(() => {
@@ -35,9 +35,7 @@ export default function ClientSidebar({ credits = 20, userName = 'Tumuna Mwabili
         .eq('is_read', false)
         .neq('sender_id', clientId);
 
-      if (data) {
-        setUnreadCount(data.length);
-      }
+      if (data) setUnreadCount(data.length);
     }
 
     checkUnread();
@@ -72,13 +70,13 @@ export default function ClientSidebar({ credits = 20, userName = 'Tumuna Mwabili
     { label: 'Letters', path: '/letters', icon: '✉️' },
     { label: 'Online now', path: '/online-now', icon: '📸' },
     { label: 'Search', path: '/search', icon: '🔍' },
+    { label: 'My Profile', path: '/profile', icon: '👤' },
     { label: 'FAQ', path: '/faq', icon: '❓' },
     { label: 'Tutorial', path: '/tutorial', icon: '📖' },
   ];
 
   return (
     <>
-      {/* Toast Pop-up Notification */}
       {toastMessage && (
         <div className="fixed top-4 right-4 bg-slate-900 text-white px-4 py-3 rounded-2xl shadow-2xl z-50 flex items-center gap-3 border border-white/20 animate-bounce">
           <span className="text-xl">💬</span>
@@ -89,7 +87,7 @@ export default function ClientSidebar({ credits = 20, userName = 'Tumuna Mwabili
         </div>
       )}
 
-      {/* Mobile Header Bar with Hamburger Menu & Collapse Arrow */}
+      {/* Mobile Header */}
       <div className="md:hidden fixed top-0 left-0 right-0 bg-white border-b border-slate-200 z-40 px-4 py-3 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-2">
           <span className="text-lg">🌸</span>
@@ -104,52 +102,42 @@ export default function ClientSidebar({ credits = 20, userName = 'Tumuna Mwabili
           </button>
           <button
             onClick={() => setIsOpen(!isOpen)}
-            className="bg-slate-100 hover:bg-slate-200 p-2 rounded-xl text-slate-700 font-bold text-xs flex items-center gap-1 transition cursor-pointer"
+            className="bg-slate-100 hover:bg-slate-200 p-2 rounded-xl text-slate-700 font-bold text-xs"
           >
-            <span>{isOpen ? '✕ Close' : '☰ Menu'}</span>
-            <span className="text-xs">{isOpen ? '◀' : '▶'}</span>
+            {isOpen ? '✕ Close' : '☰ Menu'}
           </button>
         </div>
       </div>
 
-      {/* Backdrop overlay for mobile drawer */}
-      {isOpen && (
-        <div 
-          onClick={() => setIsOpen(false)}
-          className="md:hidden fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-40"
-        />
-      )}
+      {isOpen && <div onClick={() => setIsOpen(false)} className="md:hidden fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-40" />}
 
-      {/* Collapsible Sidebar Drawer (Mobile Slide-out & Desktop Sticky) */}
-      <aside className={`fixed md:static inset-y-0 left-0 z-50 w-72 bg-white border-r border-slate-200 flex flex-col h-screen overflow-y-auto shrink-0 p-4 space-y-4 transition-transform duration-300 ${
+      {/* Sidebar Drawer */}
+      <aside className={`fixed md:static inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 flex flex-col h-screen overflow-y-auto shrink-0 p-4 space-y-4 transition-transform duration-300 ${
         isOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full md:translate-x-0'
       }`}>
-        {/* Brand Header with Collapse Button */}
         <div className="flex items-center justify-between px-2 pt-2 md:pt-0">
           <div className="flex items-center gap-2">
             <span className="text-xl">🌸</span>
             <h1 className="font-black text-base text-slate-800 tracking-tight">Frumence Date</h1>
           </div>
-          <button
-            onClick={() => setIsOpen(false)}
-            className="md:hidden text-slate-400 hover:text-slate-700 font-bold text-sm p-1"
-          >
-            ◀ Collapse
-          </button>
+          <button onClick={() => setIsOpen(false)} className="md:hidden text-slate-400 font-bold text-xs p-1">✕</button>
         </div>
 
-        {/* User Card */}
-        <div className="bg-slate-50 border border-slate-200 p-3 rounded-2xl flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-rose-600 text-white font-black flex items-center justify-center text-sm shrink-0">
+        {/* CLICKABLE USER PROFILE CARD (T Icon + Name) */}
+        <div
+          onClick={() => { router.push('/profile'); setIsOpen(false); }}
+          className="bg-slate-50 hover:bg-slate-100 border border-slate-200 p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition shadow-xs group"
+        >
+          <div className="w-10 h-10 rounded-full bg-rose-600 text-white font-black flex items-center justify-center text-sm shrink-0 shadow-sm group-hover:scale-105 transition">
             {userName.charAt(0)}
           </div>
           <div className="overflow-hidden flex-1">
-            <p className="text-xs font-extrabold text-slate-800 truncate">{userName}</p>
+            <p className="text-xs font-extrabold text-slate-800 truncate group-hover:text-blue-600 transition">{userName}</p>
             <p className="text-[10px] text-slate-400 font-semibold">{credits} Credits available</p>
           </div>
+          <span className="text-slate-400 text-xs font-bold">⚙️</span>
         </div>
 
-        {/* Action Buttons */}
         <div className="space-y-2">
           <button
             onClick={() => { router.push('/topup'); setIsOpen(false); }}
@@ -159,7 +147,6 @@ export default function ClientSidebar({ credits = 20, userName = 'Tumuna Mwabili
           </button>
         </div>
 
-        {/* Navigation Links */}
         <nav className="flex-1 space-y-1 pt-2">
           {navItems.map((item, idx) => {
             const isActive = pathname === item.path;
@@ -188,7 +175,6 @@ export default function ClientSidebar({ credits = 20, userName = 'Tumuna Mwabili
         </nav>
       </aside>
 
-      {/* Spacer div for mobile so content doesn't hide under fixed header */}
       <div className="md:hidden h-14 shrink-0" />
     </>
   );
