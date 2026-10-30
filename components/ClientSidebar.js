@@ -24,9 +24,13 @@ export default function ClientSidebar({ credits = 20, userName = 'Tumuna Mwabili
   const [unreadCount, setUnreadCount] = useState(0);
   const [toastMessage, setToastMessage] = useState(null);
   const [isOpen, setIsOpen] = useState(false);
+  const [userPhoto, setUserPhoto] = useState('');
   const clientId = getClientUuid();
 
   useEffect(() => {
+    const savedPhoto = localStorage.getItem('user_photo');
+    if (savedPhoto) setUserPhoto(savedPhoto);
+
     async function checkUnread() {
       if (!supabase) return;
       const { data } = await supabase
@@ -123,14 +127,18 @@ export default function ClientSidebar({ credits = 20, userName = 'Tumuna Mwabili
           <button onClick={() => setIsOpen(false)} className="md:hidden text-slate-400 font-bold text-xs p-1">✕</button>
         </div>
 
-        {/* CLICKABLE USER PROFILE CARD (T Icon + Name) */}
+        {/* CLICKABLE USER PROFILE CARD (Replaces T icon with actual user photo if available) */}
         <div
           onClick={() => { router.push('/profile'); setIsOpen(false); }}
           className="bg-slate-50 hover:bg-slate-100 border border-slate-200 p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition shadow-xs group"
         >
-          <div className="w-10 h-10 rounded-full bg-rose-600 text-white font-black flex items-center justify-center text-sm shrink-0 shadow-sm group-hover:scale-105 transition">
-            {userName.charAt(0)}
-          </div>
+          {userPhoto ? (
+            <img src={userPhoto} alt={userName} className="w-10 h-10 rounded-full object-cover shrink-0 border shadow-sm group-hover:scale-105 transition" />
+          ) : (
+            <div className="w-10 h-10 rounded-full bg-rose-600 text-white font-black flex items-center justify-center text-sm shrink-0 shadow-sm group-hover:scale-105 transition">
+              {userName.charAt(0)}
+            </div>
+          )}
           <div className="overflow-hidden flex-1">
             <p className="text-xs font-extrabold text-slate-800 truncate group-hover:text-blue-600 transition">{userName}</p>
             <p className="text-[10px] text-slate-400 font-semibold">{credits} Credits available</p>
