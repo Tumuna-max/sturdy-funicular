@@ -3,474 +3,362 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-);
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
-export default function OperatorConsole() {
-  const [workerUser, setWorkerUser] = useState(null);
-  const [loginEmail, setLoginEmail] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
-  const [loginLoading, setLoginLoading] = useState(false);
-
+export default function OperatorPage() {
   const [hosts, setHosts] = useState([]);
-  const [selectedHost, setSelectedHost] = useState(null);
-  const [clientChats, setClientChats] = useState([]);
-  const [selectedClient, setSelectedClient] = useState(null);
+  const [selectedHostId, setSelectedHostId] = useState(null);
+  const [conversations, setConversations] = useState([]);
+  const [selectedClientId, setSelectedClientId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [replyText, setReplyText] = useState('');
-  const [file, setFile] = useState(null);
-  const [sending, setSending] = useState(false);
-  const [clientLiked, setClientLiked] = useState(false);
+  const [activeTab, setActiveTab] = useState('chats'); // 'chats' or 'letters'
+  const [clientLikes, setClientLikes] = useState({});
+  const [photoUrlInput, setPhotoUrlInput] = useState('');
+  const [showPhotoModal, setShowPhotoModal] = useState(false);
 
-  const playOperatorAlertSound = () => {
-    try {
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(440, audioCtx.currentTime);
-      osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.1);
-      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.35);
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.start();
-      osc.stop(audioCtx.currentTime + 0.35);
-    } catch (e) {
-      console.log('Audio error:', e);
-    }
-  };
-
+  // 1. Fetch Host Profiles once on mount
   useEffect(() => {
-    async function checkAuth() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) setWorkerUser(user);
-    }
-    checkAuth();
-  }, []);
-
-  // Globally Fetch All Hosts and Unread Counts across the entire system
-  useEffect(() => {
-    if (!workerUser) return;
-
-    async function fetchGlobalUnreads() {
-      const { data: profilesData } = await supabase.from('profiles').select('*');
-      const { data: unreadMsgs } = await supabase
-        .from('messages')
-        .select('*')
-        .eq('is_read', false)
-        .eq('is_operator_reply', false);
-
-      if (profilesData && profilesData.length > 0) {
-        const formattedHosts = profilesData.map((h) => {
-          const hostUnreads = unreadMsgs
-            ? unreadMsgs.filter((m) => m.receiver_id === h.id || m.profile_id === h.id)
-            : [];
-          return {
-            ...h,
-            resolvedImg: h.image_url || h.avatar_url || h.image || h.photo_url || '',
-            unreadCount: hostUnreads.length,
-            unreads: hostUnreads
-          };
-        });
-
-        setHosts(formattedHosts);
-        if (!selectedHost) setSelectedHost(formattedHosts[0]);
+    async function fetchHosts() {
+      if (!supabase) return;
+      const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
+      if (data && data.length > 0) {
+        setHosts(
+          data.map((p) => ({
+            ...p,
+            resolvedImg: p.image_url || p.avatar_url || p.image || p.photo_url || ''
+          }))
+        );
+        // Default to first host only if no host is selected yet
+        setSelectedHostId((prev) => prev || data[0].id);
       }
     }
+    fetchHosts();
+  }, []);
 
-    fetchGlobalUnreads();
-    const interval = setInterval(fetchGlobalUnreads, 4000);
-    return () => clearInterval(interval);
-  }, [workerUser]);
-
-  // Fetch Client Chats for Selected Host
+  // 2. Fetch conversations for the selected host
   useEffect(() => {
-    if (!workerUser || !selectedHost) return;
-
     async function fetchHostChats() {
-      const { data: msgs } = await supabase
+      if (!supabase || !selectedHostId) return;
+
+      const { data: allMsg } = await supabase
         .from('messages')
         .select('*')
-        .or(`receiver_id.eq.${selectedHost.id},profile_id.eq.${selectedHost.id},sender_id.eq.${selectedHost.id}`)
+        .or(`sender_id.eq.${selectedHostId},receiver_id.eq.${selectedHostId},profile_id.eq.${selectedHostId}`)
         .order('created_at', { ascending: false });
 
-      if (msgs && msgs.length > 0) {
-        const clientIds = Array.from(
-          new Set(msgs.map((m) => (m.sender_id === selectedHost.id ? (m.receiver_id || m.profile_id) : m.sender_id)))
-        ).filter(Boolean);
+      if (allMsg) {
+        const clientMap = new Map();
+        allMsg.forEach((m) => {
+          const clientId = m.profile_id === selectedHostId ? m.sender_id : (m.sender_id === selectedHostId ? m.receiver_id : m.sender_id);
+          const isLetter = m.content?.includes('[LETTER');
 
-        const { data: usersData } = await supabase.from('users').select('id, full_name, email').in('id', clientIds);
-
-        const chats = clientIds.map((cId) => {
-          const clientUser = usersData?.find((u) => u.id === cId);
-          const lastMsg = msgs.find((m) => m.sender_id === cId || m.receiver_id === cId || m.profile_id === cId);
-          const isUnread = lastMsg && lastMsg.sender_id === cId && !lastMsg.is_read;
-
-          return {
-            id: cId,
-            name: clientUser?.full_name || clientUser?.email || `Client: ${cId.substring(0, 8)}...`,
-            lastMessage: lastMsg?.content || 'New Message',
-            isUnread: isUnread
-          };
+          if (clientId && clientId !== selectedHostId && !clientMap.has(clientId)) {
+            clientMap.set(clientId, {
+              clientId,
+              lastMessage: m.content,
+              isLetter,
+              timestamp: m.created_at
+            });
+          }
         });
 
-        setClientChats(chats);
-      } else {
-        setClientChats([]);
+        const list = Array.from(clientMap.values());
+        setConversations(list);
+
+        if (list.length > 0) {
+          setSelectedClientId((prev) => {
+            const exists = list.some((c) => c.clientId === prev);
+            return exists ? prev : list[0].clientId;
+          });
+        } else {
+          setSelectedClientId(null);
+        }
       }
     }
 
     fetchHostChats();
-  }, [workerUser, selectedHost]);
+  }, [selectedHostId]);
 
-  // Check if client is liked by this host
+  // 3. Fetch message thread for current host + client pair
   useEffect(() => {
-    if (!selectedClient || !selectedHost) return;
+    async function fetchThread() {
+      if (!supabase || !selectedHostId || !selectedClientId) {
+        setMessages([]);
+        return;
+      }
 
-    async function checkClientLiked() {
-      const { data } = await supabase
-        .from('likes')
-        .select('*')
-        .eq('client_id', selectedClient.id)
-        .eq('profile_id', selectedHost.id);
-
-      setClientLiked(data && data.length > 0);
-    }
-    checkClientLiked();
-  }, [selectedClient, selectedHost]);
-
-  const toggleLikeClient = async () => {
-    if (!selectedClient || !selectedHost) return;
-
-    if (clientLiked) {
-      await supabase
-        .from('likes')
-        .delete()
-        .match({ client_id: selectedClient.id, profile_id: selectedHost.id });
-      setClientLiked(false);
-    } else {
-      await supabase
-        .from('likes')
-        .insert([{ client_id: selectedClient.id, profile_id: selectedHost.id }]);
-      setClientLiked(true);
-    }
-  };
-
-  // Global Realtime listener
-  useEffect(() => {
-    if (!workerUser) return;
-
-    const channel = supabase
-      .channel('operator-global-realtime')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages' },
-        (payload) => {
-          const newMsg = payload.new;
-          if (!newMsg.is_operator_reply) {
-            playOperatorAlertSound();
-
-            setHosts((prevHosts) =>
-              prevHosts.map((h) => {
-                if (h.id === newMsg.receiver_id || h.id === newMsg.profile_id) {
-                  return { ...h, unreadCount: (h.unreadCount || 0) + 1 };
-                }
-                return h;
-              })
-            );
-
-            if (
-              selectedClient &&
-              selectedHost &&
-              newMsg.sender_id === selectedClient.id &&
-              (newMsg.receiver_id === selectedHost.id || newMsg.profile_id === selectedHost.id)
-            ) {
-              setMessages((prev) => [...prev, newMsg]);
-            }
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [workerUser, selectedHost, selectedClient]);
-
-  // Load Thread & Mark Read
-  useEffect(() => {
-    if (!selectedClient || !selectedHost) return;
-
-    async function loadThread() {
       const { data } = await supabase
         .from('messages')
         .select('*')
-        .or(`and(sender_id.eq.${selectedClient.id}),and(receiver_id.eq.${selectedClient.id}),and(profile_id.eq.${selectedClient.id})`)
         .order('created_at', { ascending: true });
 
       if (data) {
         const filtered = data.filter(
           (m) =>
-            (m.sender_id === selectedHost.id && (m.receiver_id === selectedClient.id || m.profile_id === selectedClient.id)) ||
-            (m.sender_id === selectedClient.id && (m.receiver_id === selectedHost.id || m.profile_id === selectedHost.id))
+            (m.sender_id === selectedHostId && m.receiver_id === selectedClientId) ||
+            (m.sender_id === selectedClientId && (m.receiver_id === selectedHostId || m.profile_id === selectedHostId))
         );
         setMessages(filtered);
-
-        await supabase
-          .from('messages')
-          .update({ is_read: true })
-          .eq('sender_id', selectedClient.id)
-          .or(`receiver_id.eq.${selectedHost.id},profile_id.eq.${selectedHost.id}`);
       }
     }
 
-    loadThread();
-  }, [selectedClient, selectedHost]);
+    fetchThread();
+  }, [selectedHostId, selectedClientId]);
 
+  // Handle sending reply as host
   const handleSendReply = async (e) => {
     e.preventDefault();
-    if ((!replyText.trim() && !file) || !selectedHost || !selectedClient) return;
-    setSending(true);
+    if (!replyText.trim() || !supabase || !selectedHostId || !selectedClientId) return;
 
-    let uploadedMediaUrl = null;
-    let isVideo = file && file.type.startsWith('video');
-    let isImage = file && file.type.startsWith('image');
-    let mediaType = isVideo ? 'video' : isImage ? 'image' : null;
+    const content = replyText;
+    setReplyText('');
 
-    if (file) {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `operator_${selectedHost.id}_${Date.now()}.${fileExt}`;
-      const { error: uploadErr } = await supabase.storage.from('chat-media').upload(fileName, file);
+    const payload = {
+      sender_id: selectedHostId,
+      receiver_id: selectedClientId,
+      profile_id: selectedHostId,
+      content: content,
+      is_read: false,
+      is_operator_reply: true
+    };
 
-      if (uploadErr) {
-        alert('Upload failed: ' + uploadErr.message);
-        setSending(false);
-        return;
-      }
+    const { data, error } = await supabase.from('messages').insert([payload]).select('*');
 
-      const { data: publicUrlData } = supabase.storage.from('chat-media').getPublicUrl(fileName);
-      uploadedMediaUrl = publicUrlData.publicUrl;
+    if (!error && data) {
+      setMessages((prev) => [...prev, data[0]]);
     }
-
-    const { data: newMsg, error } = await supabase
-      .from('messages')
-      .insert([
-        {
-          sender_id: selectedHost.id,
-          receiver_id: selectedClient.id,
-          profile_id: selectedHost.id,
-          content: replyText || (mediaType === 'video' ? '📹 Video' : '📷 Photo'),
-          media_url: uploadedMediaUrl,
-          media_type: mediaType,
-          is_operator_reply: true,
-          is_read: true
-        }
-      ])
-      .select('*');
-
-    if (!error && newMsg && newMsg.length > 0) {
-      setMessages((prev) => [...prev, newMsg[0]]);
-      setReplyText('');
-      setFile(null);
-    }
-    setSending(false);
   };
 
-  const handleWorkerLogin = async (e) => {
-    e.preventDefault();
-    setLoginLoading(true);
-    const cleanEmail = loginEmail.includes('@') ? loginEmail : `${loginEmail.trim().toLowerCase()}@frumencedate.internal`;
+  // Operator sends a protected photo message
+  const handleSendPhoto = async () => {
+    if (!photoUrlInput.trim() || !supabase || !selectedHostId || !selectedClientId) return;
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: cleanEmail,
-      password: loginPassword
-    });
+    const payload = {
+      sender_id: selectedHostId,
+      receiver_id: selectedClientId,
+      profile_id: selectedHostId,
+      content: '📸 Sent a photo',
+      media_url: photoUrlInput,
+      is_read: false,
+      is_operator_reply: true
+    };
 
-    if (error) alert('Login Failed: ' + error.message);
-    else setWorkerUser(data.user);
-    setLoginLoading(false);
+    const { data, error } = await supabase.from('messages').insert([payload]).select('*');
+
+    if (!error && data) {
+      setMessages((prev) => [...prev, data[0]]);
+      setPhotoUrlInput('');
+      setShowPhotoModal(false);
+    }
   };
 
-  if (!workerUser) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-900 p-4">
-        <form onSubmit={handleWorkerLogin} className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full space-y-4">
-          <h2 className="text-2xl font-black text-slate-800 text-center">🎧 Operator Portal</h2>
-          <input
-            type="text"
-            value={loginEmail}
-            onChange={(e) => setLoginEmail(e.target.value)}
-            placeholder="Worker Username"
-            className="w-full border p-3 rounded-lg text-sm"
-            required
-          />
-          <input
-            type="password"
-            value={loginPassword}
-            onChange={(e) => setLoginPassword(e.target.value)}
-            placeholder="Password"
-            className="w-full border p-3 rounded-lg text-sm"
-            required
-          />
-          <button type="submit" disabled={loginLoading} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg">
-            {loginLoading ? 'Signing in...' : 'Sign In'}
-          </button>
-        </form>
-      </div>
-    );
-  }
+  const toggleClientLike = async () => {
+    if (!selectedClientId) return;
+    const current = clientLikes[selectedClientId];
+    setClientLikes((prev) => ({ ...prev, [selectedClientId]: !current }));
+  };
+
+  const selectedHost = hosts.find((h) => h.id === selectedHostId);
+
+  // Separate messages into regular chat vs letters
+  const filteredMessages = messages.filter((m) => {
+    const isLetter = m.content?.includes('[LETTER');
+    return activeTab === 'letters' ? isLetter : !isLetter;
+  });
 
   return (
-    <div className="flex h-screen bg-slate-50 text-slate-800 overflow-hidden">
-      {/* 1. HOST PROFILES */}
-      <div className="w-1/4 border-r bg-white p-4 overflow-y-auto">
-        <h3 className="text-xs font-bold uppercase text-slate-400 mb-3">Host Profiles</h3>
-        <div className="space-y-2">
-          {hosts.map((host) => (
-            <button
-              key={host.id}
-              onClick={() => {
-                setSelectedHost(host);
-                setSelectedClient(null);
-              }}
-              className={`w-full flex items-center justify-between p-3 rounded-xl transition cursor-pointer ${
-                selectedHost?.id === host.id ? 'bg-blue-600 text-white shadow' : 'bg-slate-50 hover:bg-slate-100'
-              }`}
-            >
-              <div className="flex items-center gap-3 overflow-hidden">
-                <img src={host.resolvedImg} alt={host.name} className="w-10 h-10 rounded-full object-cover shrink-0 border" />
-                <div className="text-left overflow-hidden">
-                  <p className="font-bold text-sm truncate">{host.name}</p>
-                  <p className={`text-xs ${selectedHost?.id === host.id ? 'text-blue-100' : 'text-slate-500'}`}>Age {host.age}</p>
+    <div className="flex h-screen bg-slate-100 text-slate-800 font-sans overflow-hidden">
+      {/* COLUMN 1: HOST PROFILES */}
+      <div className="w-64 bg-white border-r border-slate-200 flex flex-col">
+        <div className="p-4 border-b border-slate-200 bg-slate-50">
+          <h2 className="text-xs font-black uppercase text-slate-500 tracking-wider">Host Profiles</h2>
+        </div>
+        <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
+          {hosts.map((host) => {
+            const isSelected = host.id === selectedHostId;
+            return (
+              <div
+                key={host.id}
+                onClick={() => setSelectedHostId(host.id)}
+                className={`flex items-center gap-3 p-3 cursor-pointer transition ${
+                  isSelected ? 'bg-blue-600 text-white font-bold' : 'hover:bg-slate-50 text-slate-700'
+                }`}
+              >
+                <img src={host.resolvedImg || 'https://via.placeholder.com/100'} alt={host.name} className="w-9 h-9 rounded-full object-cover shrink-0 border" />
+                <div className="overflow-hidden">
+                  <p className="text-xs truncate">{host.name}</p>
+                  <p className={`text-[10px] ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>Age {host.age}</p>
                 </div>
               </div>
-              {host.unreadCount > 0 && (
-                <span className="bg-rose-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse">
-                  {host.unreadCount}
-                </span>
-              )}
+            );
+          })}
+        </div>
+      </div>
+
+      {/* COLUMN 2: CLIENT CHATS & LETTERS LIST */}
+      <div className="w-72 bg-white border-r border-slate-200 flex flex-col">
+        <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+          <h2 className="text-xs font-black uppercase text-slate-500 tracking-wider">Client Messages</h2>
+          {/* View switcher between Chat & Letters */}
+          <div className="flex bg-slate-200 p-0.5 rounded-lg text-[10px] font-bold">
+            <button
+              onClick={() => setActiveTab('chats')}
+              className={`px-2.5 py-1 rounded-md transition ${activeTab === 'chats' ? 'bg-white shadow text-blue-600' : 'text-slate-600'}`}
+            >
+              Chats
             </button>
-          ))}
-        </div>
-      </div>
-
-      {/* 2. CLIENT CHATS */}
-      <div className="w-1/4 border-r bg-white p-4 overflow-y-auto">
-        <h3 className="text-xs font-bold uppercase text-slate-400 mb-3">Client Chats</h3>
-        <div className="space-y-2">
-          {clientChats.length === 0 ? (
-            <p className="text-xs text-slate-400 italic">No active client chats for this host.</p>
-          ) : (
-            clientChats.map((c) => (
-              <button
-                key={c.id}
-                onClick={() => setSelectedClient(c)}
-                className={`w-full text-left p-3 rounded-xl border transition cursor-pointer ${
-                  selectedClient?.id === c.id
-                    ? 'border-blue-600 bg-blue-50'
-                    : c.isUnread
-                    ? 'border-rose-400 bg-rose-50/50'
-                    : 'border-slate-200 hover:bg-slate-50'
-                }`}
-              >
-                <div className="flex justify-between items-center">
-                  <p className="text-xs font-bold text-slate-800">{c.name}</p>
-                  {c.isUnread && <span className="w-2 h-2 rounded-full bg-rose-600 animate-pulse"></span>}
-                </div>
-                <p className={`text-xs truncate mt-1 ${c.isUnread ? 'font-bold text-rose-700' : 'text-slate-500'}`}>
-                  {c.lastMessage}
-                </p>
-              </button>
-            ))
-          )}
-        </div>
-      </div>
-
-      {/* 3. MESSAGE THREAD & LIKE CLIENT BUTTON */}
-      <div className="flex-1 flex flex-col justify-between p-6">
-        {selectedHost && (
-          <div className="border-b pb-3 mb-4 flex justify-between items-center">
-            <div>
-              <span className="text-sm font-bold text-slate-700">Replying as: </span>
-              <span className="text-sm font-extrabold text-blue-600">{selectedHost.name}</span>
-            </div>
-
-            {selectedClient && (
-              <button
-                onClick={toggleLikeClient}
-                className={`font-bold text-xs px-4 py-2 rounded-xl transition shadow cursor-pointer ${
-                  clientLiked ? 'bg-emerald-600 text-white' : 'bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100'
-                }`}
-              >
-                {clientLiked ? '💚 Client Liked' : '💙 Like Client'}
-              </button>
-            )}
-
-            <span className="bg-emerald-50 text-emerald-600 border border-emerald-200 text-xs font-bold px-3 py-1 rounded-full">
-              Operator Online
-            </span>
+            <button
+              onClick={() => setActiveTab('letters')}
+              className={`px-2.5 py-1 rounded-md transition ${activeTab === 'letters' ? 'bg-white shadow text-blue-600' : 'text-slate-600'}`}
+            >
+              Letters
+            </button>
           </div>
-        )}
+        </div>
 
-        <div className="flex-1 overflow-y-auto space-y-3 mb-4 pr-2">
-          {!selectedClient ? (
-            <div className="h-full flex items-center justify-center text-slate-400 text-sm italic">
-              Select a client chat from the middle panel to view messages
-            </div>
-          ) : messages.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-slate-400 text-sm italic">
-              No message history found.
-            </div>
+        <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
+          {conversations.length === 0 ? (
+            <div className="p-6 text-center text-slate-400 text-xs">No conversation threads found.</div>
           ) : (
-            messages.map((m, idx) => (
-              <div key={idx} className={`flex ${m.sender_id === selectedHost.id ? 'justify-end' : 'justify-start'}`}>
+            conversations.map((c) => {
+              const isSelected = c.clientId === selectedClientId;
+              return (
                 <div
-                  className={`max-w-md p-3 rounded-2xl text-sm ${
-                    m.sender_id === selectedHost.id ? 'bg-blue-600 text-white' : 'bg-white border text-slate-800 shadow-sm'
+                  key={c.clientId}
+                  onClick={() => setSelectedClientId(c.clientId)}
+                  className={`p-3.5 cursor-pointer transition ${
+                    isSelected ? 'bg-blue-50 border-l-4 border-blue-600' : 'hover:bg-slate-50'
                   }`}
                 >
-                  {m.media_url && m.media_type === 'image' && (
-                    <img src={m.media_url} alt="Media" className="rounded-xl mb-2 max-h-60 w-full object-cover" />
-                  )}
-                  {m.media_url && m.media_type === 'video' && (
-                    <video src={m.media_url} controls className="rounded-xl mb-2 max-h-60 w-full object-cover" />
-                  )}
-                  {m.content && <p>{m.content}</p>}
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-xs font-bold text-slate-800">Client ID: {c.clientId.slice(0, 8)}...</span>
+                    <span className="text-[9px] text-slate-400">{new Date(c.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                  <p className="text-xs text-slate-500 truncate">{c.lastMessage}</p>
                 </div>
-              </div>
-            ))
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {/* COLUMN 3: OPERATOR WORKSPACE */}
+      <div className="flex-1 flex flex-col justify-between bg-slate-50">
+        {/* Workspace Header */}
+        <div className="bg-white border-b border-slate-200 p-4 flex justify-between items-center shadow-sm">
+          <div>
+            <span className="text-xs text-slate-400 font-bold uppercase">Replying as Host:</span>
+            <h1 className="text-base font-black text-blue-600">{selectedHost?.name || 'Select Host'}</h1>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={toggleClientLike}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border ${
+                clientLikes[selectedClientId]
+                  ? 'bg-rose-50 border-rose-200 text-rose-600'
+                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              {clientLikes[selectedClientId] ? '❤️ Client Liked' : '💙 Like Client'}
+            </button>
+            <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px-3 py-1.5 rounded-full">
+              Operator Active
+            </span>
+          </div>
+        </div>
+
+        {/* Message / Letter Thread */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-3">
+          {filteredMessages.length === 0 ? (
+            <div className="text-center text-slate-400 text-xs py-12">
+              No {activeTab === 'letters' ? 'letters' : 'chat messages'} in this thread.
+            </div>
+          ) : (
+            filteredMessages.map((m, idx) => {
+              const isOperator = m.is_operator_reply || m.sender_id === selectedHostId;
+              const isLetter = m.content?.includes('[LETTER');
+
+              return (
+                <div key={idx} className={`flex ${isOperator ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-lg p-4 rounded-2xl text-xs font-medium shadow-sm ${
+                    isLetter
+                      ? 'bg-amber-50 border border-amber-200 text-amber-900 w-full'
+                      : isOperator
+                      ? 'bg-blue-600 text-white rounded-br-none'
+                      : 'bg-white border border-slate-200 text-slate-800 rounded-bl-none'
+                  }`}>
+                    <p className="whitespace-pre-wrap">{m.content}</p>
+                    <span className={`block text-[9px] mt-1 text-right ${isOperator && !isLetter ? 'text-blue-100' : 'text-slate-400'}`}>
+                      {new Date(m.created_at).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              );
+            })
           )}
         </div>
 
-        {selectedClient && (
-          <form onSubmit={handleSendReply} className="space-y-2">
-            {file && (
-              <div className="flex items-center justify-between bg-slate-100 p-2 rounded-xl text-xs font-semibold text-slate-700">
-                <span>📎 Attached: {file.name}</span>
-                <button type="button" onClick={() => setFile(null)} className="text-rose-600 font-bold hover:underline">Remove</button>
-              </div>
-            )}
+        {/* Reply Input & Photo Attachment Toolbar */}
+        <div className="bg-white p-4 border-t border-slate-200 space-y-3">
+          <form onSubmit={handleSendReply} className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setShowPhotoModal(true)}
+              className="bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 font-bold text-xs px-3 rounded-xl transition flex items-center gap-1 cursor-pointer"
+            >
+              📷 Photo
+            </button>
 
-            <div className="flex gap-2">
-              <label className="cursor-pointer bg-slate-100 hover:bg-slate-200 border border-slate-300 p-3 rounded-xl flex items-center justify-center text-slate-600 font-bold text-sm">
-                📷 / 📹
-                <input type="file" accept="image/*,video/*" onChange={(e) => setFile(e.target.files[0])} className="hidden" />
-              </label>
+            <input
+              type="text"
+              value={replyText}
+              onChange={(e) => setReplyText(e.target.value)}
+              placeholder={`Type reply as ${selectedHost?.name || 'host'}...`}
+              className="flex-1 border border-slate-200 p-3 rounded-xl text-xs outline-none focus:border-blue-600 bg-slate-50"
+            />
+
+            <button
+              type="submit"
+              className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-6 py-3 rounded-xl transition cursor-pointer shadow-md"
+            >
+              Send Reply
+            </button>
+          </form>
+        </div>
+
+        {/* Modal: Attach Protected Photo */}
+        {showPhotoModal && (
+          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl space-y-4">
+              <h3 className="font-extrabold text-sm text-slate-800">Send Photo Attachment</h3>
+              <p className="text-xs text-slate-500">Paste an image URL below to send as a locked photo (5 credits to unlock).</p>
               <input
                 type="text"
-                value={replyText}
-                onChange={(e) => setReplyText(e.target.value)}
-                placeholder="Type reply as host..."
-                className="flex-1 border rounded-xl p-3 text-sm bg-white"
+                value={photoUrlInput}
+                onChange={(e) => setPhotoUrlInput(e.target.value)}
+                placeholder="https://example.com/photo.jpg"
+                className="w-full border p-3 rounded-xl text-xs outline-none bg-slate-50"
               />
-              <button type="submit" disabled={sending} className="bg-blue-600 text-white font-bold px-6 py-3 rounded-xl cursor-pointer">
-                {sending ? 'Sending...' : 'Send Reply'}
-              </button>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setShowPhotoModal(false)}
+                  className="border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs py-2.5 rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSendPhoto}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-2.5 rounded-xl"
+                >
+                  Send Photo
+                </button>
+              </div>
             </div>
-          </form>
+          </div>
         )}
       </div>
     </div>
