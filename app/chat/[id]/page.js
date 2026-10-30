@@ -29,12 +29,15 @@ export default function ChatRoomPage() {
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(true);
   const [credits, setCredits] = useState(20);
-  const [unlockedPhotoIds, setUnlockedPhotoIds] = useState({});
-  const [viewingPhotoUrl, setViewingPhotoUrl] = useState(null);
+  const [unlockedMediaIds, setUnlockedMediaIds] = useState({});
+  const [viewingMediaUrl, setViewingMediaUrl] = useState(null);
 
   const clientId = getClientUuid();
 
   useEffect(() => {
+    const savedCredits = localStorage.getItem('user_credits');
+    if (savedCredits) setCredits(Number(savedCredits));
+
     async function loadChatData() {
       if (!supabase || !profileId) return;
 
@@ -69,31 +72,25 @@ export default function ChatRoomPage() {
     }
 
     loadChatData();
-
-    // Realtime subscription for incoming replies
-    const channel = supabase
-      .channel('schema-db-changes')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages' },
-        (payload) => {
-          const newMsg = payload.new;
-          if (newMsg.profile_id === profileId || newMsg.sender_id === profileId || newMsg.receiver_id === clientId) {
-            setMessages((prev) => [...prev, newMsg]);
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, [profileId, clientId]);
+
+  const deductCredits = (amount) => {
+    const newTotal = credits - amount;
+    setCredits(newTotal);
+    localStorage.setItem('user_credits', String(newTotal));
+  };
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!inputText.trim() || !supabase) return;
 
+    const cost = 2; // Sending a text = 2 credits
+    if (credits < cost) {
+      alert('You need at least 2 credits to send a text message. Please add credits.');
+      return;
+    }
+
+    deductCredits(cost);
     const content = inputText;
     setInputText('');
 
@@ -106,35 +103,30 @@ export default function ChatRoomPage() {
       is_operator_reply: false
     };
 
-    const { data, error } = await supabase
-      .from('messages')
-      .insert([payload])
-      .select('*');
-
-    if (error) {
-      alert('Error sending message: ' + error.message);
-    } else if (data) {
+    const { data, error } = await supabase.from('messages').insert([payload]).select('*');
+    if (!error && data) {
       setMessages((prev) => [...prev, data[0]]);
     }
   };
 
-  const handlePhotoClick = (msg) => {
-    if (unlockedPhotoIds[msg.id]) {
-      const imgUrl = msg.media_url || profile?.resolvedImg || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600';
-      setViewingPhotoUrl(imgUrl);
+  const handleOpenMedia = (msg) => {
+    if (unlockedMediaIds[msg.id]) {
+      setViewingMediaUrl(msg.media_url || profile?.resolvedImg);
       return;
     }
 
-    if (credits < 5) {
-      alert('You need at least 5 credits to unlock this photo. Please add credits.');
+    const isVideo = msg.media_type === 'video' || msg.content?.toLowerCase().includes('video');
+    const cost = isVideo ? 15 : 5; // Opening photo = 5 credits, Opening video = 15 credits
+
+    if (credits < cost) {
+      alert(`You need ${cost} credits to open this ${isVideo ? 'video' : 'photo'}. Please add credits.`);
       return;
     }
 
-    if (confirm('Unlock this photo for 5 credits?')) {
-      setCredits((prev) => prev - 5);
-      setUnlockedPhotoIds((prev) => ({ ...prev, [msg.id]: true }));
-      const imgUrl = msg.media_url || profile?.resolvedImg || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600';
-      setViewingPhotoUrl(imgUrl);
+    if (confirm(`Open this ${isVideo ? 'video' : 'photo'} for ${cost} credits?`)) {
+      deductCredits(cost);
+      setUnlockedMediaIds((prev) => ({ ...prev, [msg.id]: true }));
+      setViewingMediaUrl(msg.media_url || profile?.resolvedImg || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600');
     }
   };
 
@@ -143,7 +135,6 @@ export default function ChatRoomPage() {
       <ClientSidebar credits={credits} userName="Tumuna Mwabili" />
 
       <main className="flex-1 flex flex-col justify-between h-screen p-6 overflow-hidden relative">
-        {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 pb-4 bg-white p-4 rounded-2xl shadow-sm">
           <div className="flex items-center gap-3">
             <button
@@ -172,16 +163,16 @@ export default function ChatRoomPage() {
             <div className="text-center text-slate-400 text-xs py-10">Loading conversation...</div>
           ) : messages.length === 0 ? (
             <div className="text-center text-slate-400 text-xs py-10 italic">
-              No messages yet. Send a greeting to start chatting!
+              No messages yet. Send a greeting (2 credits) to start chatting!
             </div>
           ) : (
             messages.map((m, idx) => {
-              // Client messages are sent by clientId. Operator replies are sent by profileId or have is_operator_reply
               const isMe = m.sender_id === clientId && !m.is_operator_reply;
-              const isPhoto = m.content?.toLowerCase().includes('photo') || m.media_url;
-              const isUnlocked = unlockedPhotoIds[m.id];
+              const isMedia = m.content?.toLowerCase().includes('photo') || m.content?.toLowerCase().includes('video') || m.media_url;
+              const isVideo = m.media_type === 'video' || m.content?.toLowerCase().includes('video');
+              const isUnlocked = unlockedMediaIds[m.id];
+              const cost = isVideo ? 15 : 5;
 
-              // Clean up letter prefix tag so it displays nicely
               let cleanContent = m.content || '';
               if (cleanContent.startsWith('[LETTER')) {
                 cleanContent = cleanContent.replace(/\[LETTER.*?\]\n\n/, '');
@@ -189,28 +180,28 @@ export default function ChatRoomPage() {
 
               return (
                 <div key={idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                  {isPhoto && !isMe ? (
+                  {isMedia && !isMe ? (
                     <div
-                      onClick={() => handlePhotoClick(m)}
+                      onClick={() => handleOpenMedia(m)}
                       className="bg-white border border-slate-200 p-3 rounded-2xl shadow-sm cursor-pointer hover:border-blue-500 transition max-w-xs space-y-2"
                     >
                       <div className="relative h-44 rounded-xl overflow-hidden bg-slate-100 flex items-center justify-center">
                         {isUnlocked ? (
                           <img
                             src={m.media_url || profile?.resolvedImg || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600'}
-                            alt="Unlocked photo"
+                            alt="Unlocked media"
                             className="w-full h-full object-cover"
                           />
                         ) : (
                           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md flex flex-col items-center justify-center text-white p-4 text-center space-y-1">
-                            <span className="text-3xl">🔒</span>
-                            <p className="text-xs font-bold">Protected Photo</p>
-                            <p className="text-[10px] text-slate-300">Click to unlock (5 Credits)</p>
+                            <span className="text-3xl">{isVideo ? '🎬' : '🔒'}</span>
+                            <p className="text-xs font-bold">Protected {isVideo ? 'Video' : 'Photo'}</p>
+                            <p className="text-[10px] text-slate-300">Tap to unlock ({cost} Credits)</p>
                           </div>
                         )}
                       </div>
                       <p className="text-[11px] font-bold text-slate-700 text-center">
-                        {isUnlocked ? 'Unlocked Photo (Click to view)' : 'Tap to Open Photo'}
+                        {isUnlocked ? 'Unlocked (Tap to view)' : `Open for ${cost} Credits`}
                       </p>
                     </div>
                   ) : (
@@ -229,35 +220,35 @@ export default function ChatRoomPage() {
           )}
         </div>
 
-        {/* Send Input Bar */}
+        {/* Send Input Bar (Costs 2 credits) */}
         <form onSubmit={handleSendMessage} className="flex gap-2 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
           <input
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder="Type your message..."
+            placeholder="Type your message (Costs 2 credits)..."
             className="flex-1 text-xs outline-none px-3 bg-transparent text-slate-700"
           />
           <button
             type="submit"
-            className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-6 py-2.5 rounded-xl transition cursor-pointer"
+            className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-6 py-2.5 rounded-xl transition cursor-pointer shadow"
           >
-            Send
+            Send (2 Cr)
           </button>
         </form>
 
-        {/* Full Image Preview Modal */}
-        {viewingPhotoUrl && (
+        {/* Media Preview Modal */}
+        {viewingMediaUrl && (
           <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-3xl p-4 max-w-md w-full shadow-2xl space-y-4 text-center">
               <div className="relative h-96 rounded-2xl overflow-hidden bg-slate-100">
-                <img src={viewingPhotoUrl} alt="Full preview" className="w-full h-full object-cover" />
+                <img src={viewingMediaUrl} alt="Full preview" className="w-full h-full object-cover" />
               </div>
               <button
-                onClick={() => setViewingPhotoUrl(null)}
+                onClick={() => setViewingMediaUrl(null)}
                 className="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs py-3 rounded-xl transition cursor-pointer"
               >
-                Close Photo
+                Close Preview
               </button>
             </div>
           </div>
