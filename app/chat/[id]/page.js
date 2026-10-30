@@ -58,7 +58,10 @@ export default function ChatRoomPage() {
 
       if (!error && msgData) {
         const filtered = msgData.filter(
-          (m) => m.sender_id === profileId || m.receiver_id === profileId || m.profile_id === profileId
+          (m) =>
+            (m.sender_id === clientId && (m.receiver_id === profileId || m.profile_id === profileId)) ||
+            (m.sender_id === profileId && (m.receiver_id === clientId || m.profile_id === profileId)) ||
+            m.profile_id === profileId
         );
         setMessages(filtered);
       }
@@ -66,7 +69,26 @@ export default function ChatRoomPage() {
     }
 
     loadChatData();
-  }, [profileId]);
+
+    // Realtime subscription for incoming replies
+    const channel = supabase
+      .channel('schema-db-changes')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        (payload) => {
+          const newMsg = payload.new;
+          if (newMsg.profile_id === profileId || newMsg.sender_id === profileId || newMsg.receiver_id === clientId) {
+            setMessages((prev) => [...prev, newMsg]);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [profileId, clientId]);
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
@@ -97,14 +119,12 @@ export default function ChatRoomPage() {
   };
 
   const handlePhotoClick = (msg) => {
-    // If already unlocked, view the full image immediately
     if (unlockedPhotoIds[msg.id]) {
       const imgUrl = msg.media_url || profile?.resolvedImg || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600';
       setViewingPhotoUrl(imgUrl);
       return;
     }
 
-    // Otherwise prompt to unlock
     if (credits < 5) {
       alert('You need at least 5 credits to unlock this photo. Please add credits.');
       return;
@@ -156,9 +176,16 @@ export default function ChatRoomPage() {
             </div>
           ) : (
             messages.map((m, idx) => {
-              const isMe = m.sender_id === clientId;
+              // Client messages are sent by clientId. Operator replies are sent by profileId or have is_operator_reply
+              const isMe = m.sender_id === clientId && !m.is_operator_reply;
               const isPhoto = m.content?.toLowerCase().includes('photo') || m.media_url;
               const isUnlocked = unlockedPhotoIds[m.id];
+
+              // Clean up letter prefix tag so it displays nicely
+              let cleanContent = m.content || '';
+              if (cleanContent.startsWith('[LETTER')) {
+                cleanContent = cleanContent.replace(/\[LETTER.*?\]\n\n/, '');
+              }
 
               return (
                 <div key={idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
@@ -190,7 +217,7 @@ export default function ChatRoomPage() {
                     <div className={`max-w-md p-3.5 rounded-2xl text-xs font-semibold ${
                       isMe ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white border border-slate-200 text-slate-800 rounded-bl-none shadow-sm'
                     }`}>
-                      <p>{m.content}</p>
+                      <p className="whitespace-pre-wrap">{cleanContent}</p>
                       <span className={`block text-[9px] mt-1 text-right ${isMe ? 'text-blue-100' : 'text-slate-400'}`}>
                         {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
