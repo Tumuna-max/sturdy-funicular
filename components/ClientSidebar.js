@@ -1,134 +1,158 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
-export default function ClientSidebar({ credits = 20, userName = "Tumuna Mwabili" }) {
+function getClientUuid() {
+  if (typeof window === 'undefined') return 'a0000000-0000-0000-0000-000000000001';
+  let id = localStorage.getItem('frumence_client_uuid');
+  if (!id) {
+    id = 'a' + crypto.randomUUID().slice(1);
+    localStorage.setItem('frumence_client_uuid', id);
+  }
+  return id;
+}
+
+export default function ClientSidebar({ credits = 20, userName = 'Tumuna Mwabili' }) {
+  const router = useRouter();
   const pathname = usePathname();
-  const [activeChatsCount, setActiveChatsCount] = useState(0);
-  const clientId = '1404449847';
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [toastMessage, setToastMessage] = useState(null);
+  const clientId = getClientUuid();
 
   useEffect(() => {
-    async function fetchActiveChatsCount() {
+    async function checkUnread() {
       if (!supabase) return;
-      
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('messages')
-        .select('sender_id, receiver_id, profile_id')
-        .or(`sender_id.eq.${clientId},receiver_id.eq.${clientId}`);
+        .select('*')
+        .eq('is_read', false)
+        .neq('sender_id', clientId);
 
-      if (!error && data) {
-        const uniqueLadyIds = new Set();
-        data.forEach((m) => {
-          if (m.sender_id !== clientId) uniqueLadyIds.add(m.sender_id);
-          if (m.receiver_id !== clientId && m.receiver_id) uniqueLadyIds.add(m.receiver_id);
-          if (m.profile_id && m.profile_id !== clientId) uniqueLadyIds.add(m.profile_id);
-        });
-        setActiveChatsCount(uniqueLadyIds.size);
+      if (data) {
+        setUnreadCount(data.length);
       }
     }
 
-    fetchActiveChatsCount();
-  }, []);
+    checkUnread();
+
+    // Realtime subscription for incoming messages to trigger toast popup & red dot
+    const channel = supabase
+      .channel('sidebar-notifications')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        (payload) => {
+          const newMsg = payload.new;
+          if (newMsg.sender_id !== clientId) {
+            setUnreadCount((prev) => prev + 1);
+            setToastMessage(newMsg.content || 'New message received!');
+            setTimeout(() => setToastMessage(null), 5000);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [clientId]);
 
   const navItems = [
-    { label: 'Browse ladies', href: '/', icon: '🌸' },
-    { label: 'All chats', href: '/chats', icon: '💬', badge: activeChatsCount > 0 ? activeChatsCount : null },
-    { label: 'Unread', href: '/unread', icon: '🏳️' },
-    { label: 'Favorites', href: '/favorites', icon: '⭐' },
-    { label: 'Your likes', href: '/your-likes', icon: '♡' },
-    { label: 'Letters', href: '/letters', icon: '✉️' },
-    { label: 'Online now', href: '/online-now', icon: '📷' },
-    { label: 'Search', href: '/search', icon: '🔍' },
-    { label: 'Like', href: '/like', icon: '💙' },
-    { label: 'FAQ', href: '/faq', icon: '❓' },
-    { label: 'Tutorial', href: '/tutorial', icon: '📖' },
+    { label: 'Browse ladies', path: '/', icon: '🌸' },
+    { label: 'All chats', path: '/chats', icon: '💬', badge: unreadCount },
+    { label: 'Unread', path: '/unread', icon: '🏳️', badge: unreadCount },
+    { label: 'Favorites', path: '/favorites', icon: '⭐' },
+    { label: 'Your likes', path: '/your-likes', icon: '🤍' },
+    { label: 'Letters', path: '/letters', icon: '✉️' },
+    { label: 'Online now', path: '/online-now', icon: '📸' },
+    { label: 'Search', path: '/search', icon: '🔍' },
+    { label: 'Like', path: '/your-likes', icon: '💙' },
+    { label: 'FAQ', path: '/faq', icon: '❓' },
+    { label: 'Tutorial', path: '/tutorial', icon: '📖' },
   ];
 
-  const getInitials = (name) => {
-    if (!name) return 'TU';
-    return name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
-  };
-
   return (
-    <aside className="w-64 border-r border-slate-200 bg-white p-4 flex flex-col justify-between shrink-0 h-screen sticky top-0 text-slate-700">
-      <div className="space-y-4">
-        {/* Brand Logo */}
-        <div className="flex items-center gap-2 font-black text-blue-600 text-xl px-2">
-          <span>🌸</span> Frumence Date
-        </div>
-
-        {/* Client Avatar Header */}
-        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 flex items-center gap-3">
-          <div className="w-12 h-12 rounded-full bg-rose-700 text-white font-black text-base flex items-center justify-center shrink-0">
-            {getInitials(userName)}
-          </div>
-          <div className="space-y-1 w-full">
-            <Link
-              href="/profile"
-              className="block w-full text-center text-xs font-bold text-blue-600 border border-blue-200 rounded-lg py-1 hover:bg-blue-50 transition"
-            >
-              👤 My profile
-            </Link>
-            <Link
-              href="/profile?tab=credits"
-              className="block w-full text-center text-xs font-bold text-slate-600 border border-slate-200 rounded-lg py-1 hover:bg-slate-100 transition"
-            >
-              🪙 Credits
-            </Link>
+    <>
+      {/* Toast Pop-up Notification */}
+      {toastMessage && (
+        <div className="fixed top-4 right-4 bg-slate-900 text-white px-4 py-3 rounded-2xl shadow-2xl z-50 flex items-center gap-3 border border-white/20 animate-bounce">
+          <span className="text-xl">💬</span>
+          <div>
+            <p className="text-xs font-black">New Message Received!</p>
+            <p className="text-[11px] text-slate-300 truncate max-w-xs">{toastMessage}</p>
           </div>
         </div>
+      )}
 
-        {/* Add Credits Button */}
-        <Link
-          href="/purchase-history"
-          className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs py-3 rounded-xl shadow-md transition cursor-pointer"
-        >
-          <span>ⓒ</span> Add credits
-        </Link>
+      {/* Sidebar Navigation - Responsive for Mobile & Desktop */}
+      <aside className="w-64 sm:w-72 bg-white border-r border-slate-200 flex flex-col h-screen overflow-y-auto shrink-0 p-4 space-y-4">
+        {/* Brand Header */}
+        <div className="flex items-center gap-2 px-2">
+          <span className="text-xl">🌸</span>
+          <h1 className="font-black text-base text-slate-800 tracking-tight">Frumence Date</h1>
+        </div>
 
-        {/* Full Nav List */}
-        <nav className="space-y-1 text-xs font-bold text-slate-600">
-          {navItems.map((item) => {
-            const isActive = pathname === item.href;
+        {/* User Card */}
+        <div className="bg-slate-50 border border-slate-200 p-3 rounded-2xl flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-rose-600 text-white font-black flex items-center justify-center text-sm shrink-0">
+            {userName.charAt(0)}
+          </div>
+          <div className="overflow-hidden flex-1">
+            <p className="text-xs font-extrabold text-slate-800 truncate">{userName}</p>
+            <p className="text-[10px] text-slate-400 font-semibold">{credits} Credits available</p>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="space-y-2">
+          <button
+            onClick={() => router.push('/topup')}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-2.5 rounded-xl shadow-sm transition cursor-pointer flex items-center justify-center gap-1.5"
+          >
+            🪙 Add credits
+          </button>
+          <button
+            onClick={() => router.push('/')}
+            className="w-full bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-bold text-xs py-2.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5"
+          >
+            🌸 Browse ladies
+          </button>
+        </div>
+
+        {/* Navigation Links */}
+        <nav className="flex-1 space-y-1 pt-2">
+          {navItems.map((item, idx) => {
+            const isActive = pathname === item.path;
             return (
-              <Link
-                key={item.label}
-                href={item.href}
-                className={`flex items-center justify-between px-3 py-2.5 rounded-xl transition cursor-pointer ${
-                  isActive
-                    ? 'bg-blue-600 text-white font-black shadow-sm'
-                    : 'hover:bg-slate-100 text-slate-600'
+              <button
+                key={idx}
+                onClick={() => router.push(item.path)}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-extrabold transition cursor-pointer ${
+                  isActive ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'
                 }`}
               >
                 <div className="flex items-center gap-3">
                   <span className="text-base">{item.icon}</span>
                   <span>{item.label}</span>
                 </div>
-                {item.badge !== null && item.badge !== undefined && (
-                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
-                    isActive ? 'bg-white text-blue-600' : 'bg-blue-100 text-blue-600'
+                {item.badge > 0 && (
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                    isActive ? 'bg-white text-blue-600' : 'bg-rose-600 text-white animate-pulse'
                   }`}>
                     {item.badge}
                   </span>
                 )}
-              </Link>
+              </button>
             );
           })}
         </nav>
-      </div>
-
-      <div className="pt-2 border-t border-slate-100">
-        <div className="flex items-center gap-2 text-xs font-bold text-slate-500 hover:text-slate-800 cursor-pointer p-2 rounded-xl hover:bg-slate-50">
-          <span>🛡️</span> Policy
-        </div>
-      </div>
-    </aside>
+      </aside>
+    </>
   );
 }
