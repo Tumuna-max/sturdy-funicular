@@ -23,6 +23,7 @@ export default function ClientSidebar({ credits = 20, userName = 'Tumuna Mwabili
   const pathname = usePathname();
   const [unreadCount, setUnreadCount] = useState(0);
   const [toastMessage, setToastMessage] = useState(null);
+  const [isOpen, setIsOpen] = useState(false); // Collapsible drawer state for mobile/tablet
   const clientId = getClientUuid();
 
   useEffect(() => {
@@ -41,7 +42,6 @@ export default function ClientSidebar({ credits = 20, userName = 'Tumuna Mwabili
 
     checkUnread();
 
-    // Realtime subscription for incoming messages to trigger toast popup & red dot
     const channel = supabase
       .channel('sidebar-notifications')
       .on(
@@ -72,7 +72,6 @@ export default function ClientSidebar({ credits = 20, userName = 'Tumuna Mwabili
     { label: 'Letters', path: '/letters', icon: '✉️' },
     { label: 'Online now', path: '/online-now', icon: '📸' },
     { label: 'Search', path: '/search', icon: '🔍' },
-    { label: 'Like', path: '/your-likes', icon: '💙' },
     { label: 'FAQ', path: '/faq', icon: '❓' },
     { label: 'Tutorial', path: '/tutorial', icon: '📖' },
   ];
@@ -90,12 +89,53 @@ export default function ClientSidebar({ credits = 20, userName = 'Tumuna Mwabili
         </div>
       )}
 
-      {/* Sidebar Navigation - Responsive for Mobile & Desktop */}
-      <aside className="w-64 sm:w-72 bg-white border-r border-slate-200 flex flex-col h-screen overflow-y-auto shrink-0 p-4 space-y-4">
-        {/* Brand Header */}
-        <div className="flex items-center gap-2 px-2">
-          <span className="text-xl">🌸</span>
-          <h1 className="font-black text-base text-slate-800 tracking-tight">Frumence Date</h1>
+      {/* Mobile Header Bar with Hamburger Menu & Collapse Arrow */}
+      <div className="md:hidden fixed top-0 left-0 right-0 bg-white border-b border-slate-200 z-40 px-4 py-3 flex items-center justify-between shadow-sm">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">🌸</span>
+          <span className="font-black text-sm text-slate-800">Frumence Date</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => router.push('/topup')}
+            className="bg-blue-600 text-white text-[11px] font-extrabold px-3 py-1.5 rounded-xl shadow-sm"
+          >
+            🪙 {credits} Cr
+          </button>
+          <button
+            onClick={() => setIsOpen(!isOpen)}
+            className="bg-slate-100 hover:bg-slate-200 p-2 rounded-xl text-slate-700 font-bold text-xs flex items-center gap-1 transition cursor-pointer"
+          >
+            <span>{isOpen ? '✕ Close' : '☰ Menu'}</span>
+            <span className="text-xs">{isOpen ? '◀' : '▶'}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Backdrop overlay for mobile drawer */}
+      {isOpen && (
+        <div 
+          onClick={() => setIsOpen(false)}
+          className="md:hidden fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-40"
+        />
+      )}
+
+      {/* Collapsible Sidebar Drawer (Mobile Slide-out & Desktop Sticky) */}
+      <aside className={`fixed md:static inset-y-0 left-0 z-50 w-72 bg-white border-r border-slate-200 flex flex-col h-screen overflow-y-auto shrink-0 p-4 space-y-4 transition-transform duration-300 ${
+        isOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full md:translate-x-0'
+      }`}>
+        {/* Brand Header with Collapse Button */}
+        <div className="flex items-center justify-between px-2 pt-2 md:pt-0">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">🌸</span>
+            <h1 className="font-black text-base text-slate-800 tracking-tight">Frumence Date</h1>
+          </div>
+          <button
+            onClick={() => setIsOpen(false)}
+            className="md:hidden text-slate-400 hover:text-slate-700 font-bold text-sm p-1"
+          >
+            ◀ Collapse
+          </button>
         </div>
 
         {/* User Card */}
@@ -112,16 +152,10 @@ export default function ClientSidebar({ credits = 20, userName = 'Tumuna Mwabili
         {/* Action Buttons */}
         <div className="space-y-2">
           <button
-            onClick={() => router.push('/topup')}
+            onClick={() => { router.push('/topup'); setIsOpen(false); }}
             className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-2.5 rounded-xl shadow-sm transition cursor-pointer flex items-center justify-center gap-1.5"
           >
             🪙 Add credits
-          </button>
-          <button
-            onClick={() => router.push('/')}
-            className="w-full bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-bold text-xs py-2.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5"
-          >
-            🌸 Browse ladies
           </button>
         </div>
 
@@ -132,7 +166,7 @@ export default function ClientSidebar({ credits = 20, userName = 'Tumuna Mwabili
             return (
               <button
                 key={idx}
-                onClick={() => router.push(item.path)}
+                onClick={() => { router.push(item.path); setIsOpen(false); }}
                 className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-extrabold transition cursor-pointer ${
                   isActive ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'
                 }`}
@@ -153,6 +187,9 @@ export default function ClientSidebar({ credits = 20, userName = 'Tumuna Mwabili
           })}
         </nav>
       </aside>
+
+      {/* Spacer div for mobile so content doesn't hide under fixed header */}
+      <div className="md:hidden h-14 shrink-0" />
     </>
   );
 }
