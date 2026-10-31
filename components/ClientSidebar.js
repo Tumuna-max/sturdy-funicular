@@ -8,7 +8,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
-export default function ClientSidebar({ credits = 0, userName = '' }) {
+export default function ClientSidebar({ credits = 50, userName = '' }) {
   const router = useRouter();
   const pathname = usePathname();
   const [unreadCount, setUnreadCount] = useState(0);
@@ -21,7 +21,7 @@ export default function ClientSidebar({ credits = 0, userName = '' }) {
     const savedPhoto = localStorage.getItem('user_photo');
     const savedCredits = localStorage.getItem('user_credits');
     const savedName = localStorage.getItem('user_name');
-    const uuid = localStorage.getItem('frumence_client_uuid');
+    const uuid = localStorage.getItem('');
 
     if (!uuid && pathname !== '/login' && pathname !== '/signup') {
       router.push('/login');
