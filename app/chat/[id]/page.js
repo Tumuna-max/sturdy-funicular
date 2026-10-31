@@ -30,13 +30,21 @@ export default function ChatRoomPage() {
   const [loading, setLoading] = useState(true);
   const [credits, setCredits] = useState(20);
   const [unlockedMediaIds, setUnlockedMediaIds] = useState({});
-  const [viewingMediaUrl, setViewingMediaUrl] = useState(null);
+  const [viewingMedia, setViewingMedia] = useState(null); // { url, type }
 
   const clientId = getClientUuid();
 
   useEffect(() => {
     const savedCredits = localStorage.getItem('user_credits');
     if (savedCredits) setCredits(Number(savedCredits));
+
+    // Load permanently unlocked media IDs from localStorage
+    const savedUnlocked = localStorage.getItem('unlocked_media');
+    if (savedUnlocked) {
+      try {
+        setUnlockedMediaIds(JSON.parse(savedUnlocked));
+      } catch (e) {}
+    }
 
     async function loadChatData() {
       if (!supabase || !profileId) return;
@@ -128,17 +136,22 @@ export default function ChatRoomPage() {
     const { data, error } = await supabase.from('messages').insert([payload]).select('*');
     if (!error && data) {
       setMessages((prev) => [...prev, data[0]]);
+      // Auto-unlock media sent by client permanently
+      if (mediaUrl) {
+        const updated = { ...unlockedMediaIds, [data[0].id]: true };
+        setUnlockedMediaIds(updated);
+        localStorage.setItem('unlocked_media', JSON.stringify(updated));
+      }
     }
   };
 
-  // Direct device file picker upload (No URLs!)
   const handleFileUpload = (e, type) => {
     const file = e.target.files[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
         const base64String = reader.result;
-        const label = type === 'video' ? '🎬 Sent a video (20 Cr)' : '📸 Sent a photo (10 Cr)';
+        const label = type === 'video' ? '🎬 Sent a video' : '📸 Sent a photo';
         handleSendMessage(null, label, base64String, type);
       };
       reader.readAsDataURL(file);
@@ -146,12 +159,15 @@ export default function ChatRoomPage() {
   };
 
   const handleOpenMedia = (msg) => {
-    if (unlockedMediaIds[msg.id]) {
-      setViewingMediaUrl(msg.media_url || profile?.resolvedImg);
+    const isVideo = msg.media_type === 'video' || msg.content?.toLowerCase().includes('video');
+    const mediaUrl = msg.media_url || profile?.resolvedImg || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600';
+
+    // If already unlocked permanently, view right away
+    if (unlockedMediaIds[msg.id] || msg.sender_id === clientId) {
+      setViewingMedia({ url: mediaUrl, type: isVideo ? 'video' : 'photo' });
       return;
     }
 
-    const isVideo = msg.media_type === 'video' || msg.content?.toLowerCase().includes('video');
     const cost = isVideo ? 15 : 5; // Open photo = 5 Cr, Open video = 15 Cr
 
     if (credits < cost) {
@@ -159,10 +175,12 @@ export default function ChatRoomPage() {
       return;
     }
 
-    if (confirm(`Open this ${isVideo ? 'video' : 'photo'} for ${cost} credits?`)) {
+    if (confirm(`Open this ${isVideo ? 'video' : 'photo'} for ${cost} credits? It will remain unlocked forever.`)) {
       deductCredits(cost);
-      setUnlockedMediaIds((prev) => ({ ...prev, [msg.id]: true }));
-      setViewingMediaUrl(msg.media_url || profile?.resolvedImg || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600');
+      const updated = { ...unlockedMediaIds, [msg.id]: true };
+      setUnlockedMediaIds(updated);
+      localStorage.setItem('unlocked_media', JSON.stringify(updated));
+      setViewingMedia({ url: mediaUrl, type: isVideo ? 'video' : 'photo' });
     }
   };
 
@@ -200,14 +218,14 @@ export default function ChatRoomPage() {
             <div className="text-center text-slate-400 text-xs py-10">Loading conversation...</div>
           ) : messages.length === 0 ? (
             <div className="text-center text-slate-400 text-xs py-10 italic">
-              No messages yet. Send a greeting (2 credits) to start chatting!
+              No messages yet. Send a greeting to start chatting!
             </div>
           ) : (
             messages.map((m, idx) => {
               const isMe = m.sender_id === clientId && !m.is_operator_reply;
               const isMedia = m.media_url || m.media_type === 'photo' || m.media_type === 'video' || m.content?.toLowerCase().includes('photo') || m.content?.toLowerCase().includes('video');
               const isVideo = m.media_type === 'video' || m.content?.toLowerCase().includes('video');
-              const isUnlocked = unlockedMediaIds[m.id];
+              const isUnlocked = unlockedMediaIds[m.id] || isMe;
               const cost = isVideo ? 15 : 5;
 
               let cleanContent = m.content || '';
@@ -217,28 +235,42 @@ export default function ChatRoomPage() {
 
               return (
                 <div key={idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                  {isMedia && !isMe ? (
+                  {isMedia ? (
                     <div
                       onClick={() => handleOpenMedia(m)}
                       className="bg-white border border-slate-200 p-3 rounded-2xl shadow-sm cursor-pointer hover:border-blue-500 transition max-w-xs space-y-2"
                     >
-                      <div className="relative h-44 rounded-xl overflow-hidden bg-slate-100 flex items-center justify-center">
+                      <div className="relative h-44 rounded-xl overflow-hidden bg-slate-900 flex items-center justify-center">
                         {isUnlocked ? (
-                          <img
-                            src={m.media_url || profile?.resolvedImg || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600'}
-                            alt="Unlocked media"
-                            className="w-full h-full object-cover"
-                          />
+                          isVideo ? (
+                            <div className="w-full h-full bg-black flex items-center justify-center text-white font-bold text-xs relative">
+                              <video src={m.media_url} className="w-full h-full object-cover" />
+                              <span className="absolute inset-0 bg-black/30 flex items-center justify-center text-2xl">▶️</span>
+                            </div>
+                          ) : (
+                            <img
+                              src={m.media_url || profile?.resolvedImg || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600'}
+                              alt="Unlocked media"
+                              className="w-full h-full object-cover"
+                            />
+                          )
                         ) : (
-                          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md flex flex-col items-center justify-center text-white p-4 text-center space-y-1">
-                            <span className="text-3xl">{isVideo ? '🎬' : '🔒'}</span>
-                            <p className="text-xs font-bold">Protected {isVideo ? 'Video' : 'Photo'}</p>
-                            <p className="text-[10px] text-slate-300">Tap to open ({cost} Credits)</p>
-                          </div>
+                          <>
+                            {/* Blurry Background */}
+                            <div
+                              className="absolute inset-0 bg-cover bg-center filter blur-md opacity-50 scale-110"
+                              style={{ backgroundImage: `url(${m.media_url || profile?.resolvedImg || ''})` }}
+                            />
+                            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm flex flex-col items-center justify-center text-white p-4 text-center space-y-1">
+                              <span className="text-3xl">{isVideo ? '🎬' : '🔒'}</span>
+                              <p className="text-xs font-bold">Protected {isVideo ? 'Video' : 'Photo'}</p>
+                              <p className="text-[10px] text-slate-300">Tap to open ({cost} Credits)</p>
+                            </div>
+                          </>
                         )}
                       </div>
                       <p className="text-[11px] font-bold text-slate-700 text-center">
-                        {isUnlocked ? 'Unlocked (Tap to view)' : `Open for ${cost} Credits`}
+                        {isUnlocked ? (isVideo ? 'Play Video (Unlocked)' : 'View Photo (Unlocked)') : `Open for ${cost} Credits`}
                       </p>
                     </div>
                   ) : (
@@ -257,14 +289,14 @@ export default function ChatRoomPage() {
           )}
         </div>
 
-        {/* Send Input Bar with Direct Device File Uploads */}
-        <form onSubmit={handleSendMessage} className="flex gap-2 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm items-center">
-          <label className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-3 py-2.5 rounded-xl transition cursor-pointer shrink-0">
-            📸 Photo (10 Cr)
+        {/* Clean WhatsApp-style Input Bar (No credit clutter) */}
+        <form onSubmit={handleSendMessage} className="flex gap-2 bg-white p-2.5 rounded-2xl border border-slate-200 shadow-sm items-center">
+          <label className="p-2 hover:bg-slate-100 rounded-xl transition cursor-pointer text-slate-600" title="Attach Photo">
+            📎📷
             <input type="file" accept="image/*" onChange={(e) => handleFileUpload(e, 'photo')} className="hidden" />
           </label>
-          <label className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-3 py-2.5 rounded-xl transition cursor-pointer shrink-0">
-            🎬 Video (20 Cr)
+          <label className="p-2 hover:bg-slate-100 rounded-xl transition cursor-pointer text-slate-600" title="Attach Video">
+            📎🎬
             <input type="file" accept="video/*" onChange={(e) => handleFileUpload(e, 'video')} className="hidden" />
           </label>
 
@@ -272,7 +304,7 @@ export default function ChatRoomPage() {
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder="Type message (2 Cr)..."
+            placeholder="Type a message..."
             className="flex-1 text-xs outline-none px-2 bg-transparent text-slate-700"
           />
 
@@ -280,19 +312,23 @@ export default function ChatRoomPage() {
             type="submit"
             className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-5 py-2.5 rounded-xl transition cursor-pointer shadow shrink-0"
           >
-            Send (2 Cr)
+            Send
           </button>
         </form>
 
-        {/* Media Preview Modal */}
-        {viewingMediaUrl && (
-          <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-3xl p-4 max-w-md w-full shadow-2xl space-y-4 text-center">
-              <div className="relative h-96 rounded-2xl overflow-hidden bg-slate-100">
-                <img src={viewingMediaUrl} alt="Full preview" className="w-full h-full object-cover" />
+        {/* Media Preview Modal (Plays Videos & Views Photos) */}
+        {viewingMedia && (
+          <div className="absolute inset-0 bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-3xl p-4 max-w-lg w-full shadow-2xl space-y-4 text-center">
+              <div className="relative h-96 rounded-2xl overflow-hidden bg-black flex items-center justify-center">
+                {viewingMedia.type === 'video' ? (
+                  <video src={viewingMedia.url} controls autoPlay className="w-full h-full object-contain" />
+                ) : (
+                  <img src={viewingMedia.url} alt="Full preview" className="w-full h-full object-contain" />
+                )}
               </div>
               <button
-                onClick={() => setViewingMediaUrl(null)}
+                onClick={() => setViewingMedia(null)}
                 className="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs py-3 rounded-xl transition cursor-pointer"
               >
                 Close Preview
