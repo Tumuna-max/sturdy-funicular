@@ -23,7 +23,6 @@ export default function ProfilePage() {
   const [bio, setBio] = useState('Web developer & travel vlogger exploring the East African coast.');
   const [photoUrl, setPhotoUrl] = useState('https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400');
   const [gallery, setGallery] = useState([]);
-  const [newGalleryUrl, setNewGalleryUrl] = useState('');
   const [credits, setCredits] = useState(20);
   const [saved, setSaved] = useState(false);
   const clientId = getClientUuid();
@@ -48,7 +47,7 @@ export default function ProfilePage() {
     if (savedCredits) setCredits(Number(savedCredits));
   }, []);
 
-  const handleFileChange = (e) => {
+  const handleAvatarUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
       const reader = new FileReader();
@@ -60,12 +59,16 @@ export default function ProfilePage() {
   };
 
   const handleAddGalleryPhoto = (e) => {
-    e.preventDefault();
-    if (!newGalleryUrl.trim()) return;
-    const updated = [...gallery, newGalleryUrl];
-    setGallery(updated);
-    setNewGalleryUrl('');
-    localStorage.setItem('user_gallery', JSON.stringify(updated));
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const updated = [...gallery, reader.result];
+        setGallery(updated);
+        localStorage.setItem('user_gallery', JSON.stringify(updated));
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleRemoveGalleryPhoto = (index) => {
@@ -85,19 +88,20 @@ export default function ProfilePage() {
     setSaved(true);
     setTimeout(() => {
       setSaved(false);
-      window.location.reload(); // Refresh to update sidebar avatar instantly
-    }, 1500);
+      window.location.reload();
+    }, 1200);
   };
 
   const handleLogout = () => {
     if (confirm('Are you sure you want to log out?')) {
+      localStorage.removeItem('frumence_client_uuid');
       alert('Logged out successfully.');
       router.push('/');
     }
   };
 
   const handleDeleteAccount = () => {
-    if (confirm('WARNING: This will permanently delete your account and clear all local data. Proceed?')) {
+    if (confirm('WARNING: This will permanently delete your account and clear all data. Proceed?')) {
       localStorage.clear();
       alert('Account deleted.');
       router.push('/');
@@ -120,19 +124,19 @@ export default function ProfilePage() {
 
         {saved && (
           <div className="bg-emerald-500 text-white font-bold text-xs px-4 py-3 rounded-2xl shadow-md">
-            Profile & Avatar updated successfully! Reloading sidebar...
+            Profile & Avatar updated successfully!
           </div>
         )}
 
         <form onSubmit={handleSave} className="bg-white border border-slate-200 p-6 rounded-3xl shadow-sm max-w-2xl space-y-5">
-          {/* Avatar & File Upload Picker */}
+          {/* Avatar Upload Picker */}
           <div className="flex items-center gap-4 pb-4 border-b border-slate-100">
             <img src={photoUrl} alt="Profile" className="w-16 h-16 rounded-2xl object-cover border shadow-sm" />
             <div className="flex-1 space-y-1">
               <h2 className="font-extrabold text-sm">{userName}, {age}</h2>
-              <label className="inline-block bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-[10px] px-3 py-1.5 rounded-xl cursor-pointer transition border border-blue-200">
-                📷 Choose Profile Photo
-                <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+              <label className="inline-block bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-4 py-2 rounded-xl cursor-pointer transition shadow-sm">
+                📷 Upload Profile Photo
+                <input type="file" accept="image/*" onChange={handleAvatarUpload} className="hidden" />
               </label>
             </div>
           </div>
@@ -202,26 +206,15 @@ export default function ProfilePage() {
           </button>
         </form>
 
-        {/* Gallery / Posted Photos Section */}
+        {/* Gallery / Posted Photos Section (Using Device File Picker instead of URLs) */}
         <div className="bg-white border border-slate-200 p-6 rounded-3xl shadow-sm max-w-2xl space-y-4">
           <h2 className="font-black text-sm text-slate-800">My Posted Photos & Gallery</h2>
-          <p className="text-xs text-slate-400">Add photos to your profile gallery for visitors to view.</p>
+          <p className="text-xs text-slate-400">Upload photos from your device to add to your profile gallery.</p>
 
-          <form onSubmit={handleAddGalleryPhoto} className="flex gap-2">
-            <input
-              type="text"
-              value={newGalleryUrl}
-              onChange={(e) => setNewGalleryUrl(e.target.value)}
-              placeholder="Paste image URL to add to gallery..."
-              className="flex-1 border border-slate-200 p-3 rounded-xl text-xs outline-none bg-slate-50"
-            />
-            <button
-              type="submit"
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-5 py-3 rounded-xl transition cursor-pointer shadow"
-            >
-              Add Photo
-            </button>
-          </form>
+          <label className="inline-block bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-5 py-3 rounded-xl cursor-pointer transition shadow">
+            ➕ Upload Gallery Photo
+            <input type="file" accept="image/*" onChange={handleAddGalleryPhoto} className="hidden" />
+          </label>
 
           <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 pt-2">
             {gallery.map((img, idx) => (
