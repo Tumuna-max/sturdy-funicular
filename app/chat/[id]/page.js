@@ -31,9 +31,6 @@ export default function ChatRoomPage() {
   const [credits, setCredits] = useState(20);
   const [unlockedMediaIds, setUnlockedMediaIds] = useState({});
   const [viewingMediaUrl, setViewingMediaUrl] = useState(null);
-  const [showMediaModal, setShowMediaModal] = useState(false);
-  const [mediaUrlInput, setMediaUrlInput] = useState('');
-  const [mediaTypeInput, setMediaTypeInput] = useState('photo'); // 'photo' or 'video'
 
   const clientId = getClientUuid();
 
@@ -76,7 +73,6 @@ export default function ChatRoomPage() {
 
     loadChatData();
 
-    // Realtime listener
     const channel = supabase
       .channel('chat-room-sync')
       .on(
@@ -102,13 +98,13 @@ export default function ChatRoomPage() {
     localStorage.setItem('user_credits', String(newTotal));
   };
 
-  const handleSendMessage = async (e, customContent = null, customMediaUrl = null, customMediaType = null) => {
+  const handleSendMessage = async (e, customContent = null, mediaUrl = null, mediaType = 'text') => {
     if (e) e.preventDefault();
     const content = customContent || inputText;
-    if (!content.trim() && !customMediaUrl) return;
+    if (!content.trim() && !mediaUrl) return;
 
     // Pricing rules: Text = 2 Cr, Photo = 10 Cr, Video = 20 Cr
-    const cost = customMediaType === 'video' ? 20 : customMediaUrl ? 10 : 2;
+    const cost = mediaType === 'video' ? 20 : mediaUrl ? 10 : 2;
 
     if (credits < cost) {
       alert(`You need at least ${cost} credits to send this. Please top up.`);
@@ -123,8 +119,8 @@ export default function ChatRoomPage() {
       receiver_id: profileId,
       profile_id: profileId,
       content: content,
-      media_url: customMediaUrl || null,
-      media_type: customMediaType || 'text',
+      media_url: mediaUrl || null,
+      media_type: mediaType,
       is_read: false,
       is_operator_reply: false
     };
@@ -132,18 +128,21 @@ export default function ChatRoomPage() {
     const { data, error } = await supabase.from('messages').insert([payload]).select('*');
     if (!error && data) {
       setMessages((prev) => [...prev, data[0]]);
-      setShowMediaModal(false);
-      setMediaUrlInput('');
     }
   };
 
-  const handleSendMediaSubmit = (type) => {
-    if (!mediaUrlInput.trim()) {
-      alert('Please enter a media URL.');
-      return;
+  // Direct device file picker upload (No URLs!)
+  const handleFileUpload = (e, type) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64String = reader.result;
+        const label = type === 'video' ? '🎬 Sent a video (20 Cr)' : '📸 Sent a photo (10 Cr)';
+        handleSendMessage(null, label, base64String, type);
+      };
+      reader.readAsDataURL(file);
     }
-    const label = type === 'video' ? '🎬 Sent a video (20 Cr)' : '📸 Sent a photo (10 Cr)';
-    handleSendMessage(null, label, mediaUrlInput, type);
   };
 
   const handleOpenMedia = (msg) => {
@@ -258,24 +257,16 @@ export default function ChatRoomPage() {
           )}
         </div>
 
-        {/* Send Input Bar with Photo & Video Buttons */}
+        {/* Send Input Bar with Direct Device File Uploads */}
         <form onSubmit={handleSendMessage} className="flex gap-2 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm items-center">
-          <button
-            type="button"
-            onClick={() => { setMediaTypeInput('photo'); setShowMediaModal(true); }}
-            className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-3 py-2.5 rounded-xl transition cursor-pointer shrink-0"
-            title="Send Photo (10 Cr)"
-          >
+          <label className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-3 py-2.5 rounded-xl transition cursor-pointer shrink-0">
             📸 Photo (10 Cr)
-          </button>
-          <button
-            type="button"
-            onClick={() => { setMediaTypeInput('video'); setShowMediaModal(true); }}
-            className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-3 py-2.5 rounded-xl transition cursor-pointer shrink-0"
-            title="Send Video (20 Cr)"
-          >
+            <input type="file" accept="image/*" onChange={(e) => handleFileUpload(e, 'photo')} className="hidden" />
+          </label>
+          <label className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-3 py-2.5 rounded-xl transition cursor-pointer shrink-0">
             🎬 Video (20 Cr)
-          </button>
+            <input type="file" accept="video/*" onChange={(e) => handleFileUpload(e, 'video')} className="hidden" />
+          </label>
 
           <input
             type="text"
@@ -292,41 +283,6 @@ export default function ChatRoomPage() {
             Send (2 Cr)
           </button>
         </form>
-
-        {/* Modal for sending Photo/Video */}
-        {showMediaModal && (
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl space-y-4">
-              <h3 className="font-extrabold text-sm text-slate-800">
-                Send {mediaTypeInput === 'video' ? 'Video (20 Credits)' : 'Photo (10 Credits)'}
-              </h3>
-              <p className="text-xs text-slate-500">Paste the image or video URL you want to send:</p>
-              <input
-                type="text"
-                value={mediaUrlInput}
-                onChange={(e) => setMediaUrlInput(e.target.value)}
-                placeholder="https://example.com/media.jpg"
-                className="w-full border p-3 rounded-xl text-xs outline-none bg-slate-50 font-semibold"
-              />
-              <div className="grid grid-cols-2 gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowMediaModal(false)}
-                  className="border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs py-2.5 rounded-xl cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSendMediaSubmit(mediaTypeInput)}
-                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-2.5 rounded-xl cursor-pointer"
-                >
-                  Send ({mediaTypeInput === 'video' ? '20' : '10'} Cr)
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Media Preview Modal */}
         {viewingMediaUrl && (
