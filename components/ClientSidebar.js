@@ -21,13 +21,10 @@ export default function ClientSidebar({ credits = 50, userName = '' }) {
     const savedPhoto = localStorage.getItem('user_photo');
     const savedCredits = localStorage.getItem('user_credits');
     const savedName = localStorage.getItem('user_name');
-    const uuid = localStorage.getItem('');
+    const uuid = localStorage.getItem('frumence_client_uuid');
 
-    if (!uuid && pathname !== '/login' && pathname !== '/signup') {
-      router.push('/login');
-      return;
-    }
-
+    // If no active session, we don't force a redirect anymore since browsing is open, 
+    // but we track session data if present.
     if (savedPhoto) setUserPhoto(savedPhoto);
     if (savedCredits) setLiveCredits(Number(savedCredits));
     if (savedName) setDisplayName(savedName);
@@ -102,11 +99,11 @@ export default function ClientSidebar({ credits = 50, userName = '' }) {
             <img src={userPhoto} alt={displayName} className="w-10 h-10 rounded-full object-cover shrink-0 border shadow-sm group-hover:scale-105 transition" />
           ) : (
             <div className="w-10 h-10 rounded-full bg-rose-600 text-white font-black flex items-center justify-center text-sm shrink-0 shadow-sm group-hover:scale-105 transition">
-              {displayName ? displayName.charAt(0) : '?'}
+              {displayName ? displayName.charAt(0) : 'G'}
             </div>
           )}
           <div className="overflow-hidden flex-1">
-            <p className="text-xs font-extrabold text-slate-800 truncate group-hover:text-blue-600 transition">{displayName || 'User Profile'}</p>
+            <p className="text-xs font-extrabold text-slate-800 truncate group-hover:text-blue-600 transition">{displayName || 'Guest User'}</p>
             <p className="text-[10px] text-slate-500 font-bold">{liveCredits} Credits available</p>
           </div>
           <span className="text-slate-400 text-xs font-bold">⚙️</span>
