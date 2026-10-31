@@ -8,7 +8,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
-export default function ClientSidebar({ credits = 20, userName = 'Tumuna Mwabili' }) {
+export default function ClientSidebar({ credits = 0, userName = '' }) {
   const router = useRouter();
   const pathname = usePathname();
   const [unreadCount, setUnreadCount] = useState(0);
@@ -23,7 +23,6 @@ export default function ClientSidebar({ credits = 20, userName = 'Tumuna Mwabili
     const savedName = localStorage.getItem('user_name');
     const uuid = localStorage.getItem('frumence_client_uuid');
 
-    // If no session exists, redirect to login page
     if (!uuid && pathname !== '/login' && pathname !== '/signup') {
       router.push('/login');
       return;
@@ -35,7 +34,11 @@ export default function ClientSidebar({ credits = 20, userName = 'Tumuna Mwabili
 
     const handleStorage = () => {
       const c = localStorage.getItem('user_credits');
+      const n = localStorage.getItem('user_name');
+      const p = localStorage.getItem('user_photo');
       if (c) setLiveCredits(Number(c));
+      if (n) setDisplayName(n);
+      if (p) setUserPhoto(p);
     };
     window.addEventListener('storage', handleStorage);
     return () => window.removeEventListener('storage', handleStorage);
@@ -91,7 +94,6 @@ export default function ClientSidebar({ credits = 20, userName = 'Tumuna Mwabili
           <button onClick={() => setIsOpen(false)} className="md:hidden text-slate-400 font-bold text-xs p-1">✕</button>
         </div>
 
-        {/* User Profile Card */}
         <div
           onClick={() => { router.push('/profile'); setIsOpen(false); }}
           className="bg-slate-50 hover:bg-slate-100 border border-slate-200 p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition shadow-xs group"
@@ -100,11 +102,11 @@ export default function ClientSidebar({ credits = 20, userName = 'Tumuna Mwabili
             <img src={userPhoto} alt={displayName} className="w-10 h-10 rounded-full object-cover shrink-0 border shadow-sm group-hover:scale-105 transition" />
           ) : (
             <div className="w-10 h-10 rounded-full bg-rose-600 text-white font-black flex items-center justify-center text-sm shrink-0 shadow-sm group-hover:scale-105 transition">
-              {displayName.charAt(0)}
+              {displayName ? displayName.charAt(0) : '?'}
             </div>
           )}
           <div className="overflow-hidden flex-1">
-            <p className="text-xs font-extrabold text-slate-800 truncate group-hover:text-blue-600 transition">{displayName}</p>
+            <p className="text-xs font-extrabold text-slate-800 truncate group-hover:text-blue-600 transition">{displayName || 'User Profile'}</p>
             <p className="text-[10px] text-slate-500 font-bold">{liveCredits} Credits available</p>
           </div>
           <span className="text-slate-400 text-xs font-bold">⚙️</span>
