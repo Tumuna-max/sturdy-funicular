@@ -31,6 +31,9 @@ export default function ChatRoomPage() {
   const [credits, setCredits] = useState(20);
   const [unlockedMediaIds, setUnlockedMediaIds] = useState({});
   const [viewingMediaUrl, setViewingMediaUrl] = useState(null);
+  const [showMediaModal, setShowMediaModal] = useState(false);
+  const [mediaUrlInput, setMediaUrlInput] = useState('');
+  const [mediaTypeInput, setMediaTypeInput] = useState('photo'); // 'photo' or 'video'
 
   const clientId = getClientUuid();
 
@@ -72,6 +75,25 @@ export default function ChatRoomPage() {
     }
 
     loadChatData();
+
+    // Realtime listener
+    const channel = supabase
+      .channel('chat-room-sync')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        (payload) => {
+          const newMsg = payload.new;
+          if (newMsg.profile_id === profileId || newMsg.sender_id === profileId || newMsg.receiver_id === clientId) {
+            setMessages((prev) => [...prev, newMsg]);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [profileId, clientId]);
 
   const deductCredits = (amount) => {
@@ -80,25 +102,29 @@ export default function ChatRoomPage() {
     localStorage.setItem('user_credits', String(newTotal));
   };
 
-  const handleSendMessage = async (e) => {
-    e.preventDefault();
-    if (!inputText.trim() || !supabase) return;
+  const handleSendMessage = async (e, customContent = null, customMediaUrl = null, customMediaType = null) => {
+    if (e) e.preventDefault();
+    const content = customContent || inputText;
+    if (!content.trim() && !customMediaUrl) return;
 
-    const cost = 2; // Sending a text = 2 credits
+    // Pricing rules: Text = 2 Cr, Photo = 10 Cr, Video = 20 Cr
+    const cost = customMediaType === 'video' ? 20 : customMediaUrl ? 10 : 2;
+
     if (credits < cost) {
-      alert('You need at least 2 credits to send a text message. Please add credits.');
+      alert(`You need at least ${cost} credits to send this. Please top up.`);
       return;
     }
 
     deductCredits(cost);
-    const content = inputText;
-    setInputText('');
+    if (!customContent) setInputText('');
 
     const payload = {
       sender_id: clientId,
       receiver_id: profileId,
       profile_id: profileId,
       content: content,
+      media_url: customMediaUrl || null,
+      media_type: customMediaType || 'text',
       is_read: false,
       is_operator_reply: false
     };
@@ -106,7 +132,18 @@ export default function ChatRoomPage() {
     const { data, error } = await supabase.from('messages').insert([payload]).select('*');
     if (!error && data) {
       setMessages((prev) => [...prev, data[0]]);
+      setShowMediaModal(false);
+      setMediaUrlInput('');
     }
+  };
+
+  const handleSendMediaSubmit = (type) => {
+    if (!mediaUrlInput.trim()) {
+      alert('Please enter a media URL.');
+      return;
+    }
+    const label = type === 'video' ? '🎬 Sent a video (20 Cr)' : '📸 Sent a photo (10 Cr)';
+    handleSendMessage(null, label, mediaUrlInput, type);
   };
 
   const handleOpenMedia = (msg) => {
@@ -116,10 +153,10 @@ export default function ChatRoomPage() {
     }
 
     const isVideo = msg.media_type === 'video' || msg.content?.toLowerCase().includes('video');
-    const cost = isVideo ? 15 : 5; // Opening photo = 5 credits, Opening video = 15 credits
+    const cost = isVideo ? 15 : 5; // Open photo = 5 Cr, Open video = 15 Cr
 
     if (credits < cost) {
-      alert(`You need ${cost} credits to open this ${isVideo ? 'video' : 'photo'}. Please add credits.`);
+      alert(`You need ${cost} credits to open this ${isVideo ? 'video' : 'photo'}. Please top up.`);
       return;
     }
 
@@ -135,6 +172,7 @@ export default function ChatRoomPage() {
       <ClientSidebar credits={credits} userName="Tumuna Mwabili" />
 
       <main className="flex-1 flex flex-col justify-between h-screen p-6 overflow-hidden relative">
+        {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 pb-4 bg-white p-4 rounded-2xl shadow-sm">
           <div className="flex items-center gap-3">
             <button
@@ -168,7 +206,7 @@ export default function ChatRoomPage() {
           ) : (
             messages.map((m, idx) => {
               const isMe = m.sender_id === clientId && !m.is_operator_reply;
-              const isMedia = m.content?.toLowerCase().includes('photo') || m.content?.toLowerCase().includes('video') || m.media_url;
+              const isMedia = m.media_url || m.media_type === 'photo' || m.media_type === 'video' || m.content?.toLowerCase().includes('photo') || m.content?.toLowerCase().includes('video');
               const isVideo = m.media_type === 'video' || m.content?.toLowerCase().includes('video');
               const isUnlocked = unlockedMediaIds[m.id];
               const cost = isVideo ? 15 : 5;
@@ -196,7 +234,7 @@ export default function ChatRoomPage() {
                           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md flex flex-col items-center justify-center text-white p-4 text-center space-y-1">
                             <span className="text-3xl">{isVideo ? '🎬' : '🔒'}</span>
                             <p className="text-xs font-bold">Protected {isVideo ? 'Video' : 'Photo'}</p>
-                            <p className="text-[10px] text-slate-300">Tap to unlock ({cost} Credits)</p>
+                            <p className="text-[10px] text-slate-300">Tap to open ({cost} Credits)</p>
                           </div>
                         )}
                       </div>
@@ -220,22 +258,75 @@ export default function ChatRoomPage() {
           )}
         </div>
 
-        {/* Send Input Bar (Costs 2 credits) */}
-        <form onSubmit={handleSendMessage} className="flex gap-2 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
+        {/* Send Input Bar with Photo & Video Buttons */}
+        <form onSubmit={handleSendMessage} className="flex gap-2 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm items-center">
+          <button
+            type="button"
+            onClick={() => { setMediaTypeInput('photo'); setShowMediaModal(true); }}
+            className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-3 py-2.5 rounded-xl transition cursor-pointer shrink-0"
+            title="Send Photo (10 Cr)"
+          >
+            📸 Photo (10 Cr)
+          </button>
+          <button
+            type="button"
+            onClick={() => { setMediaTypeInput('video'); setShowMediaModal(true); }}
+            className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-3 py-2.5 rounded-xl transition cursor-pointer shrink-0"
+            title="Send Video (20 Cr)"
+          >
+            🎬 Video (20 Cr)
+          </button>
+
           <input
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder="Type your message (Costs 2 credits)..."
-            className="flex-1 text-xs outline-none px-3 bg-transparent text-slate-700"
+            placeholder="Type message (2 Cr)..."
+            className="flex-1 text-xs outline-none px-2 bg-transparent text-slate-700"
           />
+
           <button
             type="submit"
-            className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-6 py-2.5 rounded-xl transition cursor-pointer shadow"
+            className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-5 py-2.5 rounded-xl transition cursor-pointer shadow shrink-0"
           >
             Send (2 Cr)
           </button>
         </form>
+
+        {/* Modal for sending Photo/Video */}
+        {showMediaModal && (
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl space-y-4">
+              <h3 className="font-extrabold text-sm text-slate-800">
+                Send {mediaTypeInput === 'video' ? 'Video (20 Credits)' : 'Photo (10 Credits)'}
+              </h3>
+              <p className="text-xs text-slate-500">Paste the image or video URL you want to send:</p>
+              <input
+                type="text"
+                value={mediaUrlInput}
+                onChange={(e) => setMediaUrlInput(e.target.value)}
+                placeholder="https://example.com/media.jpg"
+                className="w-full border p-3 rounded-xl text-xs outline-none bg-slate-50 font-semibold"
+              />
+              <div className="grid grid-cols-2 gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowMediaModal(false)}
+                  className="border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs py-2.5 rounded-xl cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSendMediaSubmit(mediaTypeInput)}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-2.5 rounded-xl cursor-pointer"
+                >
+                  Send ({mediaTypeInput === 'video' ? '20' : '10'} Cr)
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Media Preview Modal */}
         {viewingMediaUrl && (
