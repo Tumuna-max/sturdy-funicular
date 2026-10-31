@@ -4,166 +4,143 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import ClientSidebar from '@/components/ClientSidebar';
-import ProfileDetailModal from '@/components/ProfileDetailModal';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
-export default function HomePage() {
+export default function BrowseLadiesPage() {
   const router = useRouter();
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [credits, setCredits] = useState(20);
+  const [userName, setUserName] = useState('Tumuna Mwabili');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedProfile, setSelectedProfile] = useState(null);
-  const [likedProfiles, setLikedProfiles] = useState({});
-
-  const clientId = '1404449847';
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
-    async function fetchProfilesAndLikes() {
+    // 1. Strict Authentication Check
+    const uuid = localStorage.getItem('frumence_client_uuid');
+    if (!uuid) {
+      router.push('/login');
+      return;
+    }
+    setIsAuthenticated(true);
+
+    // 2. Load Local Client State
+    const savedCredits = localStorage.getItem('user_credits');
+    const savedName = localStorage.getItem('user_name');
+    if (savedCredits) setCredits(Number(savedCredits));
+    if (savedName) setUserName(savedName);
+
+    // 3. Fetch Host Profiles from Supabase
+    async function fetchProfiles() {
       if (!supabase) {
         setLoading(false);
         return;
       }
 
-      const { data: profileData } = await supabase
+      const { data, error } = await supabase
         .from('profiles')
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (profileData) {
-        setProfiles(
-          profileData.map((p) => ({
-            ...p,
-            resolvedImg: p.image_url || p.avatar_url || p.image || p.photo_url || ''
-          }))
-        );
+      if (!error && data) {
+        const formatted = data.map((p) => ({
+          ...p,
+          resolvedImg: p.image_url || p.avatar_url || p.image || p.photo_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600'
+        }));
+        setProfiles(formatted);
       }
-
-      const { data: likeData } = await supabase
-        .from('likes')
-        .select('profile_id')
-        .eq('client_id', clientId);
-
-      if (likeData) {
-        const likedMap = {};
-        likeData.forEach((l) => {
-          likedMap[l.profile_id] = true;
-        });
-        setLikedProfiles(likedMap);
-      }
-
       setLoading(false);
     }
 
-    fetchProfilesAndLikes();
-  }, []);
+    fetchProfiles();
+  }, [router]);
 
-  const toggleLike = async (profileId, e) => {
-    e.stopPropagation();
-    if (!supabase) return;
-
-    if (likedProfiles[profileId]) {
-      await supabase.from('likes').delete().match({ client_id: clientId, profile_id: profileId });
-      setLikedProfiles((prev) => ({ ...prev, [profileId]: false }));
-    } else {
-      await supabase.from('likes').insert([{ client_id: clientId, profile_id: profileId }]);
-      setLikedProfiles((prev) => ({ ...prev, [profileId]: true }));
-    }
-  };
+  if (!isAuthenticated) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-slate-900 text-white font-bold text-xs">
+        Checking authentication...
+      </div>
+    );
+  }
 
   const filteredProfiles = profiles.filter((p) =>
-    p.name?.toLowerCase().includes(searchQuery.toLowerCase()) || String(p.id).includes(searchQuery)
+    p.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    p.location?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
-    <div className="flex h-screen bg-slate-50 text-slate-800 overflow-hidden">
-      <ClientSidebar credits={20} userName="Tumuna Mwabili" />
+    <div className="flex h-screen bg-slate-50 text-slate-800 overflow-hidden font-sans">
+      <ClientSidebar credits={credits} userName={userName} />
 
-      <main className="flex-1 overflow-y-auto p-6 space-y-6">
-        <div className="flex items-center justify-between gap-4 bg-white p-3 px-4 rounded-2xl border border-slate-200 shadow-sm">
+      <main className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+        {/* Search Header */}
+        <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-3">
+          <span className="text-slate-400 pl-2">🔍</span>
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search ID or name"
-            className="w-full text-sm outline-none bg-transparent text-slate-700"
+            placeholder="Search ID or name..."
+            className="w-full text-xs outline-none bg-transparent text-slate-700 font-medium"
           />
         </div>
 
+        {/* Profiles Grid */}
         {loading ? (
-          <div className="flex justify-center items-center py-20 text-slate-400 text-sm">Loading profiles...</div>
+          <div className="text-center text-slate-400 text-xs py-20">Loading ladies...</div>
         ) : filteredProfiles.length === 0 ? (
-          <div className="text-center py-20 text-slate-400 text-sm">No profiles found.</div>
+          <div className="text-center text-slate-400 text-xs py-20">No profiles found matching search.</div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-            {filteredProfiles.map((lady) => {
-              const isLiked = likedProfiles[lady.id];
-              return (
-                <div
-                  key={lady.id}
-                  className="group bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 p-3 flex flex-col justify-between space-y-3"
-                >
-                  <div 
-                    onClick={() => setSelectedProfile(lady)}
-                    className="relative h-72 rounded-2xl bg-slate-100 overflow-hidden cursor-pointer"
-                  >
-                    <img
-                      src={lady.resolvedImg || 'https://via.placeholder.com/400x500'}
-                      alt={lady.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                    />
-                    <div className="absolute top-3 left-3 bg-slate-900/60 backdrop-blur-md text-white text-[10px] font-bold px-2.5 py-1 rounded-full border border-white/20 shadow-sm flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                      I'm online now
-                    </div>
-                  </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {filteredProfiles.map((lady) => (
+              <div key={lady.id} className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm hover:shadow-md transition p-3 space-y-3">
+                <div className="relative h-72 rounded-2xl overflow-hidden bg-slate-100">
+                  <img src={lady.resolvedImg} alt={lady.name} className="w-full h-full object-cover" />
+                  <span className="absolute top-3 left-3 bg-slate-900/60 backdrop-blur-md text-emerald-400 text-[10px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Online now
+                  </span>
+                </div>
 
-                  <div className="px-1">
-                    <h3 className="font-extrabold text-slate-800 text-base">{lady.name}, {lady.age}</h3>
-                    <p className="text-xs text-slate-400 font-medium">{lady.location || 'Mombasa, Kenya'}</p>
-                  </div>
+                <div>
+                  <h3 className="font-extrabold text-sm text-slate-800">{lady.name}, {lady.age}</h3>
+                  <p className="text-[11px] text-slate-400 font-medium">{lady.location || 'Mombasa'}</p>
+                </div>
 
-                  <div className="grid grid-cols-3 gap-1.5">
-                    <button 
-                      onClick={() => router.push(`/chat/${lady.id}`)}
-                      className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] py-2 rounded-xl shadow transition flex items-center justify-center gap-1 cursor-pointer"
-                    >
-                      💬 Chat
-                    </button>
-                    <button 
-                      onClick={() => router.push(`/letters?to=${lady.id}`)}
-                      className="border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-[11px] py-2 rounded-xl transition flex items-center justify-center gap-1 cursor-pointer"
-                    >
-                      ✉️ Letter
-                    </button>
-                    <button
-                      onClick={() => setSelectedProfile(lady)}
-                      className="border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-[11px] py-2 rounded-xl transition flex items-center justify-center gap-1 cursor-pointer"
-                    >
-                      👤 Profile
-                    </button>
-                  </div>
-
+                <div className="grid grid-cols-3 gap-1.5 pt-1">
                   <button
-                    onClick={(e) => toggleLike(lady.id, e)}
-                    className={`w-full border font-extrabold text-xs py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                      isLiked ? 'bg-emerald-50 border-emerald-200 text-emerald-600' : 'border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white'
-                    }`}
+                    onClick={() => router.push(`/chat/${lady.id}`)}
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] py-2 rounded-xl transition cursor-pointer flex items-center justify-center gap-1 shadow-xs"
                   >
-                    {isLiked ? '💚 Liked' : '💙 Like'}
+                    💬 Chat
+                  </button>
+                  <button
+                    onClick={() => router.push(`/chat/${lady.id}`)}
+                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] py-2 rounded-xl transition cursor-pointer flex items-center justify-center gap-1 border border-slate-200"
+                  >
+                    ✉️ Letter
+                  </button>
+                  <button
+                    onClick={() => router.push(`/chat/${lady.id}`)}
+                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] py-2 rounded-xl transition cursor-pointer flex items-center justify-center gap-1 border border-slate-200"
+                  >
+                    👤 Profile
                   </button>
                 </div>
-              );
-            })}
+
+                <button
+                  onClick={() => alert(`Liked ${lady.name}!`)}
+                  className="w-full bg-blue-50 hover:bg-blue-100 text-blue-600 font-extrabold text-[11px] py-2 rounded-xl transition cursor-pointer flex items-center justify-center gap-1 border border-blue-200"
+                >
+                  💙 Like
+                </button>
+              </div>
+            ))}
           </div>
         )}
       </main>
-
-      {selectedProfile && (
-        <ProfileDetailModal profile={selectedProfile} onClose={() => setSelectedProfile(null)} />
-      )}
     </div>
   );
 }
