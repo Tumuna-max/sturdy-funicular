@@ -25,11 +25,21 @@ export default function ClientSidebar({ credits = 20, userName = 'Tumuna Mwabili
   const [toastMessage, setToastMessage] = useState(null);
   const [isOpen, setIsOpen] = useState(false);
   const [userPhoto, setUserPhoto] = useState('');
+  const [liveCredits, setLiveCredits] = useState(credits);
   const clientId = getClientUuid();
 
   useEffect(() => {
     const savedPhoto = localStorage.getItem('user_photo');
+    const savedCredits = localStorage.getItem('user_credits');
     if (savedPhoto) setUserPhoto(savedPhoto);
+    if (savedCredits) setLiveCredits(Number(savedCredits));
+
+    // Listen for storage changes in real-time across tabs/pages
+    const handleStorage = () => {
+      const c = localStorage.getItem('user_credits');
+      if (c) setLiveCredits(Number(c));
+    };
+    window.addEventListener('storage', handleStorage);
 
     async function checkUnread() {
       if (!supabase) return;
@@ -61,6 +71,7 @@ export default function ClientSidebar({ credits = 20, userName = 'Tumuna Mwabili
       .subscribe();
 
     return () => {
+      window.removeEventListener('storage', handleStorage);
       supabase.removeChannel(channel);
     };
   }, [clientId]);
@@ -102,7 +113,7 @@ export default function ClientSidebar({ credits = 20, userName = 'Tumuna Mwabili
             onClick={() => router.push('/topup')}
             className="bg-blue-600 text-white text-[11px] font-extrabold px-3 py-1.5 rounded-xl shadow-sm"
           >
-            🪙 {credits} Cr
+            🪙 {liveCredits} Cr
           </button>
           <button
             onClick={() => setIsOpen(!isOpen)}
@@ -127,7 +138,7 @@ export default function ClientSidebar({ credits = 20, userName = 'Tumuna Mwabili
           <button onClick={() => setIsOpen(false)} className="md:hidden text-slate-400 font-bold text-xs p-1">✕</button>
         </div>
 
-        {/* CLICKABLE USER PROFILE CARD (Replaces T icon with actual user photo if available) */}
+        {/* CLICKABLE USER PROFILE CARD (Real-time live credits display) */}
         <div
           onClick={() => { router.push('/profile'); setIsOpen(false); }}
           className="bg-slate-50 hover:bg-slate-100 border border-slate-200 p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition shadow-xs group"
@@ -141,7 +152,7 @@ export default function ClientSidebar({ credits = 20, userName = 'Tumuna Mwabili
           )}
           <div className="overflow-hidden flex-1">
             <p className="text-xs font-extrabold text-slate-800 truncate group-hover:text-blue-600 transition">{userName}</p>
-            <p className="text-[10px] text-slate-400 font-semibold">{credits} Credits available</p>
+            <p className="text-[10px] text-slate-500 font-bold">{liveCredits} Credits available</p>
           </div>
           <span className="text-slate-400 text-xs font-bold">⚙️</span>
         </div>
